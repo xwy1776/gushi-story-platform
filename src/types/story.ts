@@ -37,6 +37,62 @@ export type TimelineEvent = {
   narrativeTime: string;
 };
 
+// === 叙事状态追踪 (Narrative State Tracker) ===
+export type NarrativeObjectType = 'character' | 'location' | 'faction' | 'item' | 'relationship' | 'event';
+
+export type StateProperty = {
+  key: string;
+  value: string;
+  updatedAt: string;
+};
+
+export type NarrativeStateEntry = {
+  id: string;
+  type: NarrativeObjectType;
+  name: string;
+  branchId: string;
+  properties: Record<string, string>;
+  history: Array<{
+    segmentId: string;
+    changedProperties: Record<string, string>;
+    previousValues: Record<string, string>;
+  }>;
+  lastSeenSegmentId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// === 知识图谱 (Knowledge Graph) ===
+export type GraphNodeType = 'character' | 'event' | 'location' | 'branch_point' | 'faction';
+
+export type GraphEdgeType =
+  | 'causes' | 'leads_to' | 'located_at' | 'involves'
+  | 'conflicts_with' | 'ally_of' | 'belongs_to' | 'precedes' | 'parallel_to';
+
+export type KnowledgeNode = {
+  id: string;
+  type: GraphNodeType;
+  name: string;
+  branchId: string;
+  properties: Record<string, string>;
+  segmentIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeEdge = {
+  id: string;
+  source: string;
+  target: string;
+  type: GraphEdgeType;
+  branchId: string;
+  properties: Record<string, string>;
+  segmentId: string;
+  createdAt: string;
+};
+
+// === 现有类型 (向后兼容) ===
+
 export type HistoricalEntityType = 'person' | 'event' | 'place' | 'artifact';
 
 export type HistoricalReference = {

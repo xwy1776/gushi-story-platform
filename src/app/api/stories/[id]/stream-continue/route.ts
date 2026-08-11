@@ -7,6 +7,7 @@ import { buildFullPrompt, correctCharacterNames } from '@/lib/prompt-builder';
 import { PacingEngine } from '@/lib/pacing-engine';
 import { consistencyChecker } from '@/lib/consistency-checker';
 import { callAIText, buildOpenAIRequest } from '@/lib/ai-client';
+import { runReasoningPipeline, getPipelineConfig } from '@/lib/reasoning-pipeline';
 import { contextSummarizer } from '@/lib/context-summarizer';
 import { characterManager } from '@/lib/character-engine';
 import { directorManager } from '@/lib/director-manager';
@@ -119,7 +120,7 @@ export async function POST(
     }
 
     const { id: storyId } = params;
-    const { branchId = 'main', pacingConfig, directorOverrides } = await request.json();
+    const { branchId = 'main', pacingConfig, directorOverrides, useReasoning = false } = await request.json();
 
     if (!storyId) {
       return NextResponse.json({ error: '缺少参数' }, { status: 400 });
@@ -140,8 +141,43 @@ export async function POST(
 
     let prompt: string;
     let registeredCharacterNames: string[] = [];
+    let pipelineStats: any = null;
 
-    if (pacingConfig || directorOverrides) {
+    // ─── 两阶段推理+生成 Pipeline ────────────────────────
+    if (useReasoning) {
+      const pipelineConfig = getPipelineConfig();
+      const contextSummary = chain.map((s: any) =>
+        `${s.title ? `【${s.title}】` : ''}${s.content}`
+      ).join('\n\n');
+      let characterInfo = '';
+      try {
+        const chars = await characterManager.list(storyId);
+        if (chars.length > 0) {
+          characterInfo = chars.slice(0, 5).map(c =>
+            `- ${c.name}（${c.role === 'protagonist' ? '主角' : '配角'}）：${c.coreMotivation || ''}`
+          ).join('\n');
+        }
+      } catch {}
+      const genre = (story as any)?.genre || '';
+      const fictionKeywords = ['同人', '玄幻', '仙侠', '科幻', '都市', '现代', '悬疑', '架空', '穿越', '重生', '武侠', '奇幻', '轻小说', '网文'];
+      const isFiction = fictionKeywords.some(k => genre.includes(k));
+      const styleHint = isFiction ? '请用现代白话文写作，语言流畅自然' : '请保持古典文学风格';
+      const result = await runReasoningPipeline(
+        {
+          storyTitle: story.title, storyDescription: story.description || '',
+          era: (story as any).era || undefined, genre: (story as any).genre || undefined,
+          previousText: contextSummary, characterInfo,
+          styleHint, continuityHint: '与前文情节连续。',
+          story: story as any,
+          systemPrompt: '你是一位专业的文学作家。请用中文回答。',
+          generationMaxTokens: pacingConfig ? new PacingEngine(pacingConfig).getMaxTokens() : 2000,
+        },
+        pipelineConfig
+      );
+      prompt = result.story;
+      pipelineStats = result.stats;
+      console.log('[stream-continue] Pipeline 统计:', JSON.stringify(pipelineStats));
+    } else if (pacingConfig || directorOverrides) {
       const fullResult = await buildFullPrompt({
         storyId,
         branchId,
@@ -188,7 +224,7 @@ ${styleHint}，续写下一段（150-300字），与前文情节连续。`;
       console.warn('[stream-continue] 矛盾检测失败:', e);
     }
 
-    const metadataEvent = {
+    const metadataEvent: any = {
       type: 'metadata',
       storyId,
       branchId,
@@ -196,6 +232,59 @@ ${styleHint}，续写下一段（150-300字），与前文情节连续。`;
       mood: pacingConfig?.mood || null,
       warnings: consistencyWarnings.length > 0 ? consistencyWarnings : undefined,
     };
+    if (pipelineStats) metadataEvent.pipeline = pipelineStats;
+
+    // ─── 如果已通过 Pipeline 生成内容，直接流式输出 ───
+    if (useReasoning) {
+      const preGeneratedContent = prompt;
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(metadataEvent)}\n\n`));
+            // 逐个字符发送模拟流式效果，前端只接收 { content } 格式
+            const chars = preGeneratedContent.split('');
+            const chunkSize = 3;
+            for (let i = 0; i < chars.length; i += chunkSize) {
+              const chunk = chars.slice(i, i + chunkSize).join('');
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`));
+              await new Promise(r => setTimeout(r, 15));
+            }
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          } catch (e) {
+            controller.error(e);
+          } finally {
+            controller.close();
+          }
+        },
+      });
+      // 先同步保存段落，再流式输出，确保刷新后段落已存在
+      const newSegment = await prisma.storySegment.create({
+        data: { storyId, title: '故事续写（深度推理）', content: preGeneratedContent, isBranchPoint: false,
+          branchId, parentSegmentId: tailSegment.id, imageUrls: "[]", narrativePace: pacingConfig?.pace,
+          mood: pacingConfig?.mood, visibility: story.visibility },
+      });
+      // 异步后处理（不阻塞流式输出）
+      (async () => {
+        try {
+          const mentioned = await characterManager.discoverAndRegisterCharacters(
+            storyId, preGeneratedContent,
+            (p: string) => callAIText(p, { maxTokens: 1200, story: story as any }),
+            { genre: (story as any).genre ?? undefined, storyDescription: story.description ?? undefined },
+          );
+          if (mentioned.length > 0) {
+            await prisma.storySegment.update({
+              where: { id: newSegment.id },
+              data: { characterIds: JSON.stringify(mentioned.map(c => c.id)) },
+            });
+          }
+        } catch (e) { console.warn('[stream-continue] 角色发现失败:', e); }
+        try { triggerBackup(); } catch {}
+      })();
+      return new NextResponse(stream, {
+        headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+      });
+    }
 
     const baseMaxTokens = pacingConfig
       ? new PacingEngine(pacingConfig).getMaxTokens()
@@ -354,7 +443,7 @@ ${styleHint}，续写下一段（150-300字），与前文情节连续。`;
               isBranchPoint: false,
               branchId,
               parentSegmentId: tailSegment.id,
-              imageUrls: [],
+              imageUrls: "[]",
               narrativePace: pacingConfig?.pace,
               mood: pacingConfig?.mood,
               visibility: story.visibility,
@@ -382,7 +471,7 @@ ${styleHint}，续写下一段（150-300字），与前文情节连续。`;
                 if (mentionedIds.length > 0) {
                   await prisma.storySegment.update({
                     where: { id: newSegment.id },
-                    data: { characterIds: mentionedIds },
+                    data: { characterIds: JSON.stringify(mentionedIds) },
                   });
                 }
               } catch (e) {
@@ -416,7 +505,7 @@ ${styleHint}，续写下一段（150-300字），与前文情节连续。`;
                 .processSegment(storyId, branchId, {
                   id: newSegment.id,
                   content: fullContent,
-                  characterIds: mentionedIds,
+                  characterIds: JSON.stringify(mentionedIds),
                 })
                 .catch((e: any) => console.warn('[stream-continue] 事件提取失败:', e));
 

@@ -89,6 +89,7 @@ export default function StoryDetailPage({ params }: { params: { id: string } }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [continuing, setContinuing] = useState(false);
+  const [useReasoning, setUseReasoning] = useState(false);
   const [newContent, setNewContent] = useState('');
   const [currentBranchId, setCurrentBranchId] = useState('main');
   const [showBranchDialog, setShowBranchDialog] = useState(false);
@@ -252,6 +253,7 @@ export default function StoryDetailPage({ params }: { params: { id: string } }) 
         body: JSON.stringify({
           branchId: currentBranchId,
           pacingConfig,
+          useReasoning,
         })
       });
 
@@ -1001,6 +1003,26 @@ export default function StoryDetailPage({ params }: { params: { id: string } }) 
             {segments.length > 0 && (
               <div className="mt-6 text-center">
                 <div className="divider-ornament mb-6"><span>✦</span></div>
+
+                {/* 深度推理开关 */}
+                <div className="flex items-center justify-center gap-3 mb-4">
+                  <button
+                    onClick={() => setUseReasoning(!useReasoning)}
+                    disabled={continuing}
+                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                      useReasoning ? 'bg-amber-600' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-sm ${
+                      useReasoning ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
+                  </button>
+                  <span className="text-sm text-[var(--muted)]">
+                    🧠 深度推理模式
+                    {useReasoning && <span className="text-amber-600 text-xs ml-1">（先生成计划，再写正文）</span>}
+                  </span>
+                </div>
+
                 <button
                   onClick={handleContinue}
                   disabled={continuing}
@@ -1013,7 +1035,7 @@ export default function StoryDetailPage({ params }: { params: { id: string } }) 
                   {continuing ? (
                     <><span className="inline-block w-4 h-4 border-2 border-[var(--muted)] border-t-transparent rounded-full animate-spin" />故事书写中...</>
                   ) : (
-                    <>✦ 续写故事</>
+                    <>{useReasoning ? '✦ 深度续写' : '✦ 续写故事'}</>
                   )}
                 </button>
               </div>

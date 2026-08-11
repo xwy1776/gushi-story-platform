@@ -8,6 +8,7 @@ import { directorManager } from '@/lib/director-manager';
 import { timelineEngine } from '@/lib/timeline-engine';
 import { consistencyChecker } from '@/lib/consistency-checker';
 import { callAIText } from '@/lib/ai-client';
+import { runReasoningPipeline, getPipelineConfig, type ReasoningTrace, type PipelineStats } from '@/lib/reasoning-pipeline';
 import { classifyGenre } from '@/lib/genre-config';
 import { PacingEngine } from '@/lib/pacing-engine';
 import { characterManager } from '@/lib/character-engine';
@@ -26,7 +27,7 @@ export async function POST(
     }
 
     const { id: storyId } = params;
-    const { branchId = 'main', pacingConfig, directorOverrides } = await request.json();
+    const { branchId = 'main', pacingConfig, directorOverrides, useReasoning = false } = await request.json();
 
     if (!storyId) {
       return NextResponse.json({ error: '缺少参数' }, { status: 400 });
@@ -110,11 +111,52 @@ export async function POST(
       ? '你是一位专业的文学作家。请用中文回答，用现代白话文写作，保持与前文的风格和情节连续性。'
       : '你是一位擅长中国历史题材的文学作家。请用中文回答，保持与前文的风格和情节连续性。';
 
-    const aiResponse = await callAIText(prompt, {
-      systemPrompt,
-      maxTokens,
-      story: story as any,
-    });
+    // ─── 两阶段推理+生成 Pipeline ────────────────────────
+    let aiResponse: string;
+    let reasoningTrace: ReasoningTrace | null = null;
+    let pipelineStats: PipelineStats | null = null;
+
+    if (useReasoning) {
+      const pipelineConfig = getPipelineConfig();
+      let characterInfo = '';
+      try {
+        const chars = await characterManager.list(storyId);
+        if (chars.length > 0) {
+          characterInfo = chars.slice(0, 5).map(c =>
+            `- ${c.name}（${c.role === 'protagonist' ? '主角' : '配角'}）：${c.coreMotivation || ''}`
+          ).join('\n');
+        }
+      } catch {}
+      let directorNotes = '';
+      try {
+        const directorState = await directorManager.getState(storyId);
+        if (directorState) {
+          const constraints = Array.isArray(directorState.activeConstraints)
+            ? directorState.activeConstraints
+            : JSON.parse(directorState.activeConstraints || '[]');
+          if (constraints.length > 0) directorNotes = constraints.join('\n');
+        }
+      } catch {}
+      const contextSummary = chain.map((s: StorySegment) =>
+        `${s.title ? `【${s.title}】` : ''}${s.content}`,
+      ).join('\n\n');
+      const result = await runReasoningPipeline(
+        {
+          storyTitle: story.title, storyDescription: story.description || '',
+          era: story.era || undefined, genre: story.genre || undefined,
+          previousText: contextSummary, characterInfo, directorNotes,
+          styleHint, continuityHint,
+          story: story as any, systemPrompt, generationMaxTokens: maxTokens,
+        },
+        pipelineConfig
+      );
+      aiResponse = result.story;
+      reasoningTrace = result.reasoningTrace;
+      pipelineStats = result.stats;
+      console.log('[continue] Pipeline 统计:', JSON.stringify(pipelineStats));
+    } else {
+      aiResponse = await callAIText(prompt, { systemPrompt, maxTokens, story: story as any });
+    }
 
     if (!aiResponse || aiResponse.trim().length === 0) {
       return NextResponse.json({
@@ -159,11 +201,11 @@ export async function POST(
         isBranchPoint: false,
         branchId,
         parentSegmentId: tailSegment.id,
-        imageUrls: [],
+        imageUrls: "[]",
         narrativePace: pacingConfig?.pace,
         mood: pacingConfig?.mood,
         visibility: story.visibility,
-        characterIds: mentionedIds,
+        characterIds: JSON.stringify(mentionedIds),
       },
     });
 
@@ -189,7 +231,7 @@ export async function POST(
       .processSegment(storyId, branchId, {
         id: newSegment.id,
         content: aiResponse,
-        characterIds: mentionedIds,
+        characterIds: JSON.stringify(mentionedIds),
       })
       .catch((e: any) => console.warn('[continue] 事件提取失败:', e));
 
@@ -204,11 +246,12 @@ export async function POST(
     }
 
     triggerBackup();
-    return NextResponse.json({
-      success: true,
-      segment: newSegment,
+    const responseData: any = {
+      success: true, segment: newSegment,
       warnings: { consistency: consistencyWarnings, timeline: timelineWarnings },
-    });
+    };
+    if (pipelineStats) responseData.pipelineStats = pipelineStats;
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('故事续写失败:', error);
     return NextResponse.json(

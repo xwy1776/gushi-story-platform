@@ -7,6 +7,8 @@ import { buildFullPrompt } from '@/lib/prompt-builder';
 import { directorManager } from '@/lib/director-manager';
 import { timelineEngine } from '@/lib/timeline-engine';
 import { consistencyChecker } from '@/lib/consistency-checker';
+import { narrativeStateTracker } from '@/lib/narrative-state-tracker';
+import { knowledgeGraph } from '@/lib/knowledge-graph';
 import { callAIText } from '@/lib/ai-client';
 import { classifyGenre } from '@/lib/genre-config';
 import { PacingEngine } from '@/lib/pacing-engine';
@@ -67,10 +69,10 @@ export async function POST(
       console.warn('[continue] 时间轴校验失败:', e);
     }
 
-    // Build prompt
+    // Build prompt — 统一走 buildFullPrompt，保证叙事状态表+知识图谱注入在所有续写路径生效
     let prompt: string;
-    if (pacingConfig || directorOverrides) {
-      prompt = (await buildFullPrompt({
+    try {
+      const result = await buildFullPrompt({
         storyId,
         branchId,
         tailSegment: tailSegment as any,
@@ -79,8 +81,10 @@ export async function POST(
         storyDescription: story.description ?? undefined,
         pacingConfig,
         directorOverrides,
-      })).prompt;
-    } else {
+      });
+      prompt = result.prompt;
+    } catch (e) {
+      console.warn('[continue] buildFullPrompt 失败，回退到简单模板:', e);
       const genre = story.genre || '';
       const description = story.description || '';
       const { isFiction } = classifyGenre(genre, description);
@@ -192,6 +196,28 @@ export async function POST(
         characterIds: mentionedIds,
       })
       .catch((e: any) => console.warn('[continue] 事件提取失败:', e));
+
+    // 叙事状态表更新（SCORE 动态状态追踪，fire-and-forget）
+    // 每段写完，AI 增量更新"角色/地点/势力/关系"的符号化状态，供下次续写查表
+    try {
+      narrativeStateTracker
+        .updateFromSegment(storyId, branchId, newSegment.id, aiResponse)
+        .catch((e: any) => console.warn('[continue] 叙事状态表更新失败:', e));
+    } catch (e) {
+      console.warn('[continue] 叙事状态表更新失败:', e);
+    }
+
+    // 知识图谱更新（DOME MEM，fire-and-forget）
+    // 每段写完，LLM 抽取实体+关系边，增量构建时序知识图谱
+    try {
+      knowledgeGraph
+        .extractFromSegment(aiResponse, branchId, newSegment.id, (p: string) =>
+          callAIText(p, { maxTokens: 1500, story: story as any })
+        )
+        .catch((e: any) => console.warn('[continue] 知识图谱更新失败:', e));
+    } catch (e) {
+      console.warn('[continue] 知识图谱更新失败:', e);
+    }
 
     // Post-write consistency check
     try {

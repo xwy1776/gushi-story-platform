@@ -302,7 +302,6 @@ class KnowledgeGraph {
     const edges = graph.edges.filter(e => visitedEdgeIds.has(e.id));
 
     // 生成一句话摘要
-    const nodeNames = nodes.map(n => n.name).join('、');
     const edgeSummary = edges.map(e => {
       const srcName = nodes.find(n => n.id === e.source)?.name || '?';
       const tgtName = nodes.find(n => n.id === e.target)?.name || '?';
@@ -350,9 +349,10 @@ class KnowledgeGraph {
         if (visited.has(neighbor)) continue;
         visited.add(neighbor);
 
-        const neighborNode = graph.nodes.find(n => n.id === neighbor);
-        if (neighborNode) {
-          parentMap.set(neighbor, { edge, node: neighborNode });
+        // parentMap 记录"如何到达 neighbor"：经过的边 + 前驱节点（current 对应的节点）
+        const currentParentNode = graph.nodes.find(n => n.id === current);
+        if (currentParentNode) {
+          parentMap.set(neighbor, { edge, node: currentParentNode });
           queue.push(neighbor);
         }
       }
@@ -388,16 +388,16 @@ class KnowledgeGraph {
    * 这个方法可以替代 consistency-checker.checkCharacterConsistency 里
    * 的 relationship_contradiction 部分。
    */
-  checkRelationshipConsistency(
+  async checkRelationshipConsistency(
     segmentContent: string,
     branchId: string,
-  ): Array<{
+  ): Promise<Array<{
     severity: 'error' | 'warning';
     edge: KnowledgeEdge;
     sourceName: string;
     targetName: string;
     issue: string;
-  }> {
+  }>> {
     const issues: Array<{
       severity: 'error' | 'warning';
       edge: KnowledgeEdge;
@@ -406,9 +406,9 @@ class KnowledgeGraph {
       issue: string;
     }> = [];
 
-    if (!this.data) return issues; // 还没加载就先跳过
+    const graph = await this.load();
+    if (!graph || graph.edges.length === 0) return issues;
 
-    const graph = this.data;
     const relevantEdges = graph.edges.filter(e => e.branchId === branchId);
 
     for (const edge of relevantEdges) {
@@ -472,7 +472,6 @@ class KnowledgeGraph {
    * - 输出结构化关系描述，让 LLM 在生成时保持关系一致
    */
   async buildPromptContext(
-    segmentContent: string,
     branchId: string,
     currentCharacters: string[],   // 当前段落中出现的角色名
     currentLocations: string[],    // 当前段落中出现的地名
@@ -693,6 +692,15 @@ ${segmentContent.slice(0, 2500)}
       edgeByType,
       largestComponent: -1,  // 暂不计算连通分量
     };
+  }
+
+  /**
+   * 测试用：重置为空图谱，避免污染 data/ 目录
+   */
+  async resetForTest(): Promise<void> {
+    this.data = { nodes: [], edges: [], version: 1, updatedAt: new Date().toISOString() };
+    this.initialized = true;
+    await this.save();
   }
 }
 

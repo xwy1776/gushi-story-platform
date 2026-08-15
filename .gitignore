@@ -55,5 +55,8 @@ public/generated-images/*
 # Database backups
 /backups/
 
+# Knowledge graph runtime data (regenerated from story segments)
+data/knowledge-graph.json
+
 # Prisma config (incompatible with current Prisma version)
 prisma.config.ts

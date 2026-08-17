@@ -412,30 +412,36 @@ export async function buildFullPrompt(options: BuildPromptOptions): Promise<Buil
   // ─── 3.5 叙事状态表注入（SCORE 动态状态追踪） ───
   // 持续追踪角色/地点/势力等叙事关键对象的符号化状态，
   // 续写前把状态表注入 Prompt，防止"前文说在上海，后文跑北京"类矛盾。
-  try {
-    const stateTableText = await narrativeStateTracker.buildPromptContext(
-      storyId, branchId, tailSegment.id,
-    );
-    if (stateTableText.trim()) parts.push(stateTableText);
-  } catch (e) {
-    console.warn('[prompt-builder] 叙事状态表注入失败:', e);
+  // 环境变量 MEMORY_MODULES_ENABLED=false 可关闭（用于 A/B 对比测试）
+  const memoryModulesEnabled = process.env.MEMORY_MODULES_ENABLED !== 'false';
+  if (memoryModulesEnabled) {
+    try {
+      const stateTableText = await narrativeStateTracker.buildPromptContext(
+        storyId, branchId, tailSegment.id,
+      );
+      if (stateTableText.trim()) parts.push(stateTableText);
+    } catch (e) {
+      console.warn('[prompt-builder] 叙事状态表注入失败:', e);
+    }
   }
 
   // ─── 3.8 知识图谱上下文注入（DOME MEM） ───
   // 从当前段落涉及的角色出发，做 BFS 邻域查询，
   // 把"谁跟谁什么关系、谁导致了什么"结构化注入，约束角色关系一致性。
-  try {
-    const charRecords = await prisma.character.findMany({ where: { id: { in: allCharIds } } });
-    const charNames = charRecords.map(c => c.name);
-    const graphText = await knowledgeGraph.buildPromptContext(
-      branchId,
-      charNames,
-      [], // 地点名暂不提供（后续可用 NER 抽取）
-      2,  // BFS 2 跳
-    );
-    if (graphText.trim()) parts.push(graphText);
-  } catch (e) {
-    console.warn('[prompt-builder] 知识图谱上下文注入失败:', e);
+  if (memoryModulesEnabled) {
+    try {
+      const charRecords = await prisma.character.findMany({ where: { id: { in: allCharIds } } });
+      const charNames = charRecords.map(c => c.name);
+      const graphText = await knowledgeGraph.buildPromptContext(
+        branchId,
+        charNames,
+        [], // 地点名暂不提供（后续可用 NER 抽取）
+        2,  // BFS 2 跳
+      );
+      if (graphText.trim()) parts.push(graphText);
+    } catch (e) {
+      console.warn('[prompt-builder] 知识图谱上下文注入失败:', e);
+    }
   }
 
   // ─── 4. 角色状态 ───

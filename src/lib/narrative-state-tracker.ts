@@ -137,6 +137,40 @@ class NarrativeStateTracker {
     }
   }
 
+  /**
+   * 测试用：直接覆盖状态表（不依赖 AI 增量更新，保证 A/B 对比可复现）
+   */
+  async forceSetStates(storyId: string, branchId: string, states: NarrativeObjectState[]): Promise<void> {
+    const now = new Date().toISOString();
+    const normalized = states.map(s => ({
+      ...s,
+      history: s.history || [],
+      createdAt: s.createdAt || now,
+      updatedAt: s.updatedAt || now,
+    }));
+
+    // 确保 DirectorState 存在
+    let ds = await prisma.directorState.findUnique({ where: { storyId } });
+    if (!ds) {
+      ds = await prisma.directorState.create({
+        data: {
+          id: `dir_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          storyId,
+          characterStates: {},
+          worldVariables: {},
+          activeConstraints: [],
+        },
+      });
+    }
+
+    const wv = (ds.worldVariables as Record<string, any>) || {};
+    wv[`narrative_states_${branchId}`] = normalized;
+    await prisma.directorState.update({
+      where: { storyId },
+      data: { worldVariables: wv, updatedAt: new Date() },
+    });
+  }
+
   // ==========================================================================
   // 核心方法：用 AI 从段落增量更新状态表
   // ==========================================================================

@@ -1,5 +1,7 @@
 # 多阶段构建 - 使用官方 Node.js 镜像作为基础
-FROM node:18-bookworm-slim AS deps
+# 可通过 --build-arg BASE_NODE_IMAGE=xxx 覆盖基础镜像（国内网络用 daocloud 镜像源）
+ARG BASE_NODE_IMAGE=node:18-bookworm-slim
+FROM ${BASE_NODE_IMAGE} AS deps
 
 WORKDIR /app
 
@@ -11,7 +13,7 @@ COPY prisma ./prisma/
 RUN npm ci --only=production
 
 # 构建阶段
-FROM node:18-bookworm-slim AS builder
+FROM ${BASE_NODE_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -35,7 +37,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # 生产运行阶段
-FROM node:18-bookworm-slim AS runner
+FROM ${BASE_NODE_IMAGE} AS runner
 
 WORKDIR /app
 

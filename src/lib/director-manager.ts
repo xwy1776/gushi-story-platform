@@ -205,9 +205,15 @@ ${segmentContent.slice(0, 2000)}
     }
 
     const worldVars = state.worldVariables as Record<string, string> || {};
-    if (Object.keys(worldVars).length > 0) {
+    const filteredWorldVars = Object.fromEntries(
+      Object.entries(worldVars).filter(([key]) =>
+        // 跳过内部管理用的 key（状态表/场景状态等），避免泄漏进导演 Prompt
+        !key.startsWith('narrative_states_') && key !== 'scene_state'
+      )
+    );
+    if (Object.keys(filteredWorldVars).length > 0) {
       parts.push('【导演指定世界变量】');
-      for (const [key, value] of Object.entries(worldVars)) {
+      for (const [key, value] of Object.entries(filteredWorldVars)) {
         parts.push(`- ${key}：${value}`);
       }
     }

@@ -154,6 +154,46 @@ async function main() {
   const noEntityCtx = await knowledgeGraph.buildPromptContext(BRANCH, [], [], 2);
   assert(noEntityCtx === '', '无查询实体 → 返回空串（边界情况）');
 
+  // ── 7.5 关系净化（2026-09-13）──
+  // 消融实验发现 `both` 档（0.177）反而劣于 `state` 单档（0.043）：
+  // 图谱注入的内容本身是噪声——同一子图重复打印三遍、且会注入
+  // `A→同盟→B` 与 `A→敌对→B` 这类自相矛盾的关系。这里锁住修复行为。
+  console.log('\n关系净化（去重 / 去矛盾 / 归并同义节点）:');
+  const PB = 'purify_branch';
+  const pA = await knowledgeGraph.getOrCreateNode({ type: 'character', name: '甲', branchId: PB });
+  const pB = await knowledgeGraph.getOrCreateNode({ type: 'character', name: '乙', branchId: PB });
+  const pC = await knowledgeGraph.getOrCreateNode({ type: 'character', name: '丙', branchId: PB });
+  // 同一实体被 LLM 标成两种类型（实测"长安"既被抽成地点又被抽成角色）
+  const placeAsLoc = await knowledgeGraph.getOrCreateNode({ type: 'location', name: '长安城', branchId: PB });
+  const placeAsChar = await knowledgeGraph.getOrCreateNode({ type: 'character', name: '长安城', branchId: PB });
+
+  // 自环：丙 参与 丙
+  await knowledgeGraph.addEdge({ source: pC.id, target: pC.id, type: 'involves', branchId: PB, segmentId: 'p1' });
+  // 极性矛盾：甲-乙 先"同盟"、后"敌对"
+  await knowledgeGraph.addEdge({ source: pA.id, target: pB.id, type: 'ally_of', branchId: PB, segmentId: 'p1' });
+  // 隔开几毫秒，保证两条边的 createdAt 有确定先后（净化规则是"保留更早的"）
+  await new Promise((r) => setTimeout(r, 5));
+  await knowledgeGraph.addEdge({ source: pB.id, target: pA.id, type: 'conflicts_with', branchId: PB, segmentId: 'p9' });
+  // 让两个"长安城"节点都进入子图
+  await knowledgeGraph.addEdge({ source: pA.id, target: placeAsLoc.id, type: 'involves', branchId: PB, segmentId: 'p1' });
+  await knowledgeGraph.addEdge({ source: pB.id, target: placeAsChar.id, type: 'involves', branchId: PB, segmentId: 'p1' });
+
+  const purifyCtx = await knowledgeGraph.buildPromptContext(PB, ['甲', '乙', '丙'], [], 2);
+
+  assert(!purifyCtx.includes('丙 → 参与 → 丙'), '自环关系被丢弃');
+  assert(!purifyCtx.includes('敌对'), '极性矛盾项被抑制（后出现的敌对被丢弃）');
+  assert(purifyCtx.includes('甲 → 同盟 → 乙'), '更早的同盟关系被保留');
+
+  // 关系链路不允许出现重复行（旧实现会把同一子图打印三遍）
+  const relLines = purifyCtx.split('\n').filter(l => l.trim().startsWith('- '));
+  assert(relLines.length > 0, `注入了 ${relLines.length} 条关系链路`);
+  assert(new Set(relLines).size === relLines.length, '关系链路无重复行（旧实现会重复三遍）');
+
+  // 同名实体只列一次，不能同时出现在「角色」和「地点」两行里
+  const typeSection = purifyCtx.split('关系链路：')[0];
+  const placeNameCount = (typeSection.match(/长安城/g) || []).length;
+  assert(placeNameCount === 1, `同名实体只列一次（实际 ${placeNameCount} 次；归并前会是 2 次）`);
+
   // ── 8. findNodeByName / findNodesByType ──
   console.log('\nfindNodeByName / findNodesByType:');
   const foundLiuBei = await knowledgeGraph.findNodeByName('刘备');

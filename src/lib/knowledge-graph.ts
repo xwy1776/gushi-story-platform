@@ -89,6 +89,89 @@ type GraphData = {
 };
 
 // ============================================================================
+// 注入 Prompt 前的关系净化
+// ============================================================================
+
+/** 注入 Prompt 的关系条数上限（超出的按相关性截断） */
+const MAX_PROMPT_EDGES = 24;
+/** 注入 Prompt 的每类实体名上限 */
+const MAX_PROMPT_NAMES_PER_TYPE = 12;
+/** 单段抽取的实体数上限（不设限时 LLM 会把名词短语全抽成节点，图迅速被噪声淹没） */
+const MAX_EXTRACT_ENTITIES = 12;
+/** 单段抽取的关系数上限 */
+const MAX_EXTRACT_RELATIONS = 15;
+
+/** 矛盾极性：同一对实体不应同时被判定为「友好」与「敌对」 */
+const NEGATIVE_EDGE_TYPES = new Set<EdgeType>(['conflicts_with']);
+const NEUTRAL_EDGE_TYPES = new Set<EdgeType>(['causes', 'parallel_to']);
+
+function edgePolarity(type: EdgeType): 'positive' | 'negative' | 'neutral' {
+  if (NEGATIVE_EDGE_TYPES.has(type)) return 'negative';
+  if (NEUTRAL_EDGE_TYPES.has(type)) return 'neutral';
+  return 'positive';
+}
+
+/** 关系类型 → 中文标签（注入 Prompt 用） */
+const EDGE_TYPE_LABEL: Record<EdgeType, string> = {
+  causes: '导致', leads_to: '引向', located_at: '位于',
+  involves: '参与', conflicts_with: '敌对', ally_of: '同盟',
+  belongs_to: '隶属于', precedes: '先于', parallel_to: '平行（跨分支）',
+};
+
+/** 合法的关系类型（用于拦截 LLM 返回的枚举外取值） */
+const VALID_EDGE_TYPES = new Set<string>(Object.keys(EDGE_TYPE_LABEL));
+
+/**
+ * 净化关系后再注入 Prompt。
+ *
+ * LLM 抽取出来的关系会随时间累积噪声，直接注入会把模型带偏：
+ * - **自环**：`A →参与→ A`，无信息量
+ * - **反向重复**：`A →参与→ B` 与 `B →参与→ A` 同时存在，同一关系注入两遍
+ * - **极性矛盾**：`回纥 →同盟→ 吐蕃` 与 `回纥 →敌对→ 吐蕃` 同时存在。
+ *   模型拿到自相矛盾的事实会倾向原地打转（消融实验里 `both` 档劣于
+ *   `state` 档的疑似机制）。此时**保留更早的那条**（种子数据先写入，
+ *   通常才是设定正确的），丢弃后出现的矛盾项——而非整对丢弃，避免
+ *   连带损失正确的先验关系。
+ */
+function purifyEdges(
+  edges: KnowledgeEdge[],
+  nodeById: Map<string, KnowledgeNode>,
+): KnowledgeEdge[] {
+  // 按无向实体对分组：A→B 与 B→A 归为同一对
+  const pairs = new Map<string, KnowledgeEdge[]>();
+  for (const e of edges) {
+    if (!nodeById.has(e.source) || !nodeById.has(e.target)) continue;
+    if (e.source === e.target) continue;  // 自环
+    const key = [e.source, e.target].sort().join('::');
+    const group = pairs.get(key);
+    if (group) group.push(e);
+    else pairs.set(key, [e]);
+  }
+
+  const kept: KnowledgeEdge[] = [];
+  for (const group of pairs.values()) {
+    // 同一条边可能因权重更新重复落库，按时间定序，保证可复现
+    group.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    const firstPolarity = edgePolarity(group[0].type);
+    const seenTypes = new Set<EdgeType>();
+
+    for (const e of group) {
+      const polarity = edgePolarity(e.type);
+      // 与最早那条极性相反 → 矛盾项，丢弃
+      if (firstPolarity !== 'neutral' && polarity !== 'neutral' && polarity !== firstPolarity) {
+        continue;
+      }
+      // 同一对实体上同一种关系只保留一条（正反向算同一条）
+      if (seenTypes.has(e.type)) continue;
+      seenTypes.add(e.type);
+      kept.push(e);
+    }
+  }
+  return kept;
+}
+
+// ============================================================================
 // KnowledgeGraph 类
 // ============================================================================
 
@@ -504,8 +587,23 @@ class KnowledgeGraph {
    * 构建注入 Prompt 的知识图谱上下文区块
    *
    * 设计要点：
-   * - 从当前段落出现的角色名/地点名出发，做 BFS 2跳查询
+   * - 从当前段落出现的角色名/地点名出发，做 BFS N 跳查询
    * - 输出结构化关系描述，让 LLM 在生成时保持关系一致
+   *
+   * 2026-09-13 重构 —— 消融实验发现 `both` 档（0.177）反而劣于 `state`
+   * 单档（0.043），`graph` 单档（0.254）也几乎等于无记忆基线（0.332）。
+   * 排查注入内容后发现旧实现有三个缺陷，导致图谱这一路本身就是噪声源：
+   *
+   *  ① **同一子图重复三遍**：对每个查询实体各做一次 BFS，再把前 3 个子图
+   *     全部打印。图一旦连通，这几个子图几乎完全相同 —— 实测 1984 字符的
+   *     注入内容里约 1300 字符是纯重复，白白挤占上下文预算。
+   *  ② **注入自相矛盾的关系**：不做去重也不做冲突检测，`回纥 →同盟→ 吐蕃`
+   *     与 `回纥 →敌对→ 吐蕃` 会同时进入 Prompt。模型拿到互相矛盾的事实
+   *     倾向原地打转，这正是实验中「退化复读」的疑似机制。
+   *  ③ **按节点数挑子图**：`sort(by nodes.length).slice(0,3)` 等于专挑最
+   *     嘈杂的几个子图注入。
+   *
+   * 现在改为：合并去重 → 净化矛盾关系 → 按相关性排序 → 截断条数。
    */
   async buildPromptContext(
     branchId: string,
@@ -520,71 +618,108 @@ class KnowledgeGraph {
     const entityNames = [...currentCharacters, ...currentLocations];
     if (entityNames.length === 0) return '';
 
-    // 对每个实体做 BFS 查询
-    const subgraphs: KnowledgeSubgraph[] = [];
-    const seenNodeIds = new Set<string>();
+    const nodeById = new Map(graph.nodes.map(n => [n.id, n]));
+
+    // ── 1. 合并所有查询实体的邻域（旧实现是各查各的、再重复打印）──
+    const mergedNodeIds = new Set<string>();
+    const mergedEdges = new Map<string, KnowledgeEdge>();
+    const seedNames = new Set<string>();
+    let hitAny = false;
 
     for (const name of entityNames) {
+      if (graph.nodes.some(n => n.name === name && n.branchId === branchId)) seedNames.add(name);
+
       const sub = await this.queryNeighborhood(name, branchId, hops);
-      if (sub && sub.nodes.length > 1) {  // 不止有自己
-        subgraphs.push(sub);
-        sub.nodes.forEach(n => seenNodeIds.add(n.id));
-      }
+      if (!sub || sub.nodes.length <= 1) continue;  // 不止有自己
+      hitAny = true;
+      sub.nodes.forEach(n => mergedNodeIds.add(n.id));
+      sub.edges.forEach(e => mergedEdges.set(e.id, e));
     }
 
-    if (subgraphs.length === 0) return '';
+    if (!hitAny) return '';
 
-    // 按节点数排序，取最重要的子图（最多展示3个）
-    subgraphs.sort((a, b) => b.nodes.length - a.nodes.length);
+    // ── 1.5 同义节点归并 ──
+    // 同一实体在不同段落里可能被 LLM 标成不同类型（实测"长安"既被抽成地点、
+    // 又被抽成角色），而 getOrCreateNode 按 (name, type) 去重，于是长出两个节点，
+    // 注入时同一个名字会同时出现在「角色」和「地点」两行里。按名字归并，
+    // 保留最早登记的那个（种子/首次出现更可信）。
+    const canonicalByName = new Map<string, KnowledgeNode>();
+    for (const id of mergedNodeIds) {
+      const n = nodeById.get(id);
+      if (!n) continue;
+      const cur = canonicalByName.get(n.name);
+      if (!cur || n.createdAt < cur.createdAt) canonicalByName.set(n.name, n);
+    }
+    const canonicalId = new Map<string, string>();
+    for (const id of mergedNodeIds) {
+      const n = nodeById.get(id);
+      if (n) canonicalId.set(id, canonicalByName.get(n.name)!.id);
+    }
+
+    // 归并后可能产生自环（原本 A(角色)→B 与 A(地点)→B 归到一起），交给 purifyEdges 丢弃
+    const canonicalEdges = [...mergedEdges.values()].map(e => ({
+      ...e,
+      source: canonicalId.get(e.source) ?? e.source,
+      target: canonicalId.get(e.target) ?? e.target,
+    }));
+
+    const displayNodes = new Map([...canonicalByName.values()].map(n => [n.id, n]));
+    const seedNodeIds = new Set(
+      [...seedNames].map(name => canonicalByName.get(name)?.id).filter((id): id is string => !!id),
+    );
+
+    // ── 2. 净化关系：去自环/去反向重复/抑制极性矛盾 ──
+    const edges = purifyEdges(canonicalEdges, displayNodes);
+    if (edges.length === 0) return '';
+
+    // ── 3. 排序：与当前段落实体直接相连的优先，其次看端点度数（越核心越靠前）──
+    const degree = new Map<string, number>();
+    for (const e of edges) {
+      degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
+      degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
+    }
+    const ranked = edges
+      .map(e => ({
+        e,
+        score:
+          (seedNodeIds.has(e.source) || seedNodeIds.has(e.target) ? 1000 : 0) +
+          (degree.get(e.source) ?? 0) + (degree.get(e.target) ?? 0),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_PROMPT_EDGES)
+      .map(x => x.e);
+
+    // ── 4. 只列出真正出现在关系里的实体，且按类型限量 ──
+    const usedNodeIds = new Set<string>();
+    for (const e of ranked) {
+      usedNodeIds.add(e.source);
+      usedNodeIds.add(e.target);
+    }
+    const usedNodes = [...usedNodeIds]
+      .map(id => displayNodes.get(id))
+      .filter((n): n is KnowledgeNode => !!n);
 
     const lines: string[] = [];
     lines.push('## 知识图谱（角色关系与事件关联）');
     lines.push('以下为当前段落涉及的关键实体之间的关系，续写时请确保关系一致：');
     lines.push('');
 
-    for (const sub of subgraphs.slice(0, 3)) {
-      // 输出节点
-      const charNodes = sub.nodes.filter(n => n.type === 'character');
-      const locNodes = sub.nodes.filter(n => n.type === 'location');
-      const eventNodes = sub.nodes.filter(n => n.type === 'event');
-      const factionNodes = sub.nodes.filter(n => n.type === 'faction');
+    const namesOfType = (type: NodeType) =>
+      usedNodes.filter(n => n.type === type).slice(0, MAX_PROMPT_NAMES_PER_TYPE).map(n => n.name);
 
-      if (charNodes.length > 0) {
-        lines.push(`角色：${charNodes.map(n => n.name).join('、')}`);
-      }
-      if (locNodes.length > 0) {
-        lines.push(`地点：${locNodes.map(n => n.name).join('、')}`);
-      }
-      if (eventNodes.length > 0) {
-        lines.push(`事件：${eventNodes.map(n => n.name).join('、')}`);
-      }
-      if (factionNodes.length > 0) {
-        lines.push(`势力：${factionNodes.map(n => n.name).join('、')}`);
-      }
+    for (const [label, type] of [
+      ['角色', 'character'], ['地点', 'location'], ['事件', 'event'], ['势力', 'faction'],
+    ] as Array<[string, NodeType]>) {
+      const names = namesOfType(type);
+      if (names.length > 0) lines.push(`${label}：${names.join('、')}`);
+    }
 
-      // 输出边（关系）
-      if (sub.edges.length > 0) {
-        const edgeLines = sub.edges.map(e => {
-          const srcNode = sub.nodes.find(n => n.id === e.source);
-          const tgtNode = sub.nodes.find(n => n.id === e.target);
-          if (!srcNode || !tgtNode) return '';
-
-          const typeLabel: Record<EdgeType, string> = {
-            causes: '导致', leads_to: '引向', located_at: '位于',
-            involves: '参与', conflicts_with: '敌对', ally_of: '同盟',
-            belongs_to: '隶属于', precedes: '先于', parallel_to: '平行（跨分支）',
-          };
-
-          return `  - ${srcNode.name} → ${typeLabel[e.type]} → ${tgtNode.name}`;
-        }).filter(Boolean);
-
-        if (edgeLines.length > 0) {
-          lines.push('关系链路：');
-          lines.push(...edgeLines);
-        }
-      }
-
-      lines.push('');
+    lines.push('关系链路：');
+    for (const e of ranked) {
+      const src = displayNodes.get(e.source);
+      const tgt = displayNodes.get(e.target);
+      if (!src || !tgt) continue;
+      lines.push(`  - ${src.name} → ${EDGE_TYPE_LABEL[e.type]} → ${tgt.name}`);
     }
 
     return lines.join('\n');
@@ -632,9 +767,15 @@ ${segmentContent.slice(0, 2500)}
 
 ## 抽取指南
 - 实体名用最常用的名字（不要代称），第一个实体就是最重要的
+- **只抽对后续情节有影响的关键实体，最多 ${MAX_EXTRACT_ENTITIES} 个**；
+  一次性出场的次要人物、路人、泛指称谓不要抽
+- **关系最多 ${MAX_EXTRACT_RELATIONS} 条**，只保留最关键的
+- 同一个实体只出现一次，不要用不同叫法重复登记（如"回纥"与"回纥可汗"择一）
 - 关系类型：causes=导致，leads_to=叙事流程导向，located_at=在某个地点，
   involves=参与某事，conflicts_with=敌对/冲突，ally_of=同盟/友好，
   belongs_to=属于某个势力/组织，precedes=时间上先于
+- 每对实体之间最多 1 条关系，且**方向与类型必须与已有设定一致**，
+  不要同时给出"同盟"和"敌对"这类互相矛盾的判断
 - 每个实体最多抽取1-2个最关键属性`;
 
     try {
@@ -647,8 +788,8 @@ ${segmentContent.slice(0, 2500)}
 
       const parsed = JSON.parse(cleaned);
 
-      const entities = parsed.entities || [];
-      const relations = parsed.relations || [];
+      const entities = (parsed.entities || []).slice(0, MAX_EXTRACT_ENTITIES);
+      const relations = (parsed.relations || []).slice(0, MAX_EXTRACT_RELATIONS);
 
       // 批量创建节点
       const newNodes: KnowledgeNode[] = [];
@@ -673,7 +814,14 @@ ${segmentContent.slice(0, 2500)}
         const fromId = nameToNodeId.get(rel.from);
         const toId = nameToNodeId.get(rel.to);
         if (!fromId || !toId) continue;
-        if (!rel.type) continue;
+        // 自环（A 参与 A）没有信息量，只会在注入时变成噪声
+        if (fromId === toId) continue;
+        // LLM 可能返回不在枚举内的类型，落库前必须拦掉，
+        // 否则会在注入时渲染成 undefined 标签
+        if (!VALID_EDGE_TYPES.has(rel.type)) {
+          console.warn(`[knowledge-graph] 丢弃非法关系类型 "${rel.type}"（${rel.from} → ${rel.to}）`);
+          continue;
+        }
 
         try {
           const edge = await this.addEdge({

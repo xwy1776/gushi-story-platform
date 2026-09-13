@@ -126,6 +126,49 @@ async function main() {
   const otherSub = await knowledgeGraph.queryNeighborhood('刘备', otherBranch, 2);
   assert(otherSub !== null && otherSub.nodes.length === 1, '另一分支的刘备无关联节点（隔离生效）');
 
+  // 在另一分支上给同一角色建不同的关系，两分支应各自独立
+  const otherGuanYu = await knowledgeGraph.getOrCreateNode({ type: 'character', name: '关羽', branchId: otherBranch });
+  await knowledgeGraph.addEdge({
+    source: (await knowledgeGraph.getOrCreateNode({ type: 'character', name: '刘备', branchId: otherBranch })).id,
+    target: otherGuanYu.id, type: 'conflicts_with', branchId: otherBranch, segmentId: 'b2s1',
+  });
+  // 关键：同名角色在不同分支是不同节点
+  assert(otherGuanYu.id !== guanYu.id, '同名角色在不同分支是不同节点（无串味）');
+  // 分支2：刘备-关羽 是敌对；分支1：刘备-关羽 是盟友 —— 互不影响
+  const b2Sub = await knowledgeGraph.queryNeighborhood('刘备', otherBranch, 1);
+  const b2Edge = b2Sub?.edges.find(e => e.type === 'conflicts_with');
+  assert(!!b2Edge, '分支2 的刘备-关羽为 conflicts_with');
+  const b1Sub = await knowledgeGraph.queryNeighborhood('刘备', BRANCH, 1);
+  const b1Edge = b1Sub?.edges.find(e => e.type === 'ally_of');
+  assert(!!b1Edge, '分支1 的刘备-关羽仍为 ally_of（未被分支2 污染）');
+
+  // ── 7. buildPromptContext —— 图谱注入 Prompt ──
+  console.log('\nbuildPromptContext:');
+  const kgPromptCtx = await knowledgeGraph.buildPromptContext(BRANCH, ['刘备'], ['洛阳'], 2);
+  assert(kgPromptCtx.length > 0, '非空图谱 + 命中实体 → 返回注入内容');
+  assert(kgPromptCtx.includes('刘备'), '注入内容包含查询实体「刘备」');
+
+  // 无关联实体 / 空分支 → 空串，不产生垃圾 Prompt
+  const emptyKgCtx = await knowledgeGraph.buildPromptContext('branch_never_written', ['刘备'], [], 2);
+  assert(emptyKgCtx === '', '未写入的分支 → 返回空串（不注入无用内容）');
+  const noEntityCtx = await knowledgeGraph.buildPromptContext(BRANCH, [], [], 2);
+  assert(noEntityCtx === '', '无查询实体 → 返回空串（边界情况）');
+
+  // ── 8. findNodeByName / findNodesByType ──
+  console.log('\nfindNodeByName / findNodesByType:');
+  const foundLiuBei = await knowledgeGraph.findNodeByName('刘备');
+  assert(!!foundLiuBei, 'findNodeByName 找到「刘备」');
+  const noSuchNode = await knowledgeGraph.findNodeByName('不存在的人物');
+  assert(noSuchNode === undefined, 'findNodeByName 查不到返回 undefined');
+  const charNodes = await knowledgeGraph.findNodesByType('character');
+  assert(charNodes.length >= 6, `findNodesByType('character') 返回 ${charNodes.length} 个节点`);
+
+  // ── 9. getStats 类型统计 ──
+  console.log('\ngetStats:');
+  const statsDetailed = await knowledgeGraph.getStats();
+  assert(statsDetailed.nodeByType.character >= 6, `角色节点统计 ${statsDetailed.nodeByType.character} 个`);
+  assert(statsDetailed.edgeByType.ally_of >= 2, `ally_of 边统计 ${statsDetailed.edgeByType.ally_of} 条`);
+
   // 统计
   const stats = await knowledgeGraph.getStats();
   assert(stats.totalNodes >= 6, `图谱共${stats.totalNodes}个节点`);

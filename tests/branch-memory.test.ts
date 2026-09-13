@@ -4,6 +4,9 @@
  * 运行: npx tsx tests/branch-memory.test.ts
  */
 
+// 必须最先导入：在 prisma 读取 DATABASE_URL 之前把容器主机名改写成宿主机地址
+import './test-env';
+
 import {
   findDivergencePoint,
   getAlternateBranchSummaries,

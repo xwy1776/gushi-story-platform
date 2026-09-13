@@ -11,7 +11,7 @@
 - **数据库**: PostgreSQL (Prisma ORM) + JSON 文件存储 (`data/` 目录，通过 `src/lib/simple-db.ts`)
 - **AI**: OpenAI-compatible API（文本续写 + 图片生成）
 - **部署**: Docker / Docker Compose（Redis + Nginx）+ Capacitor（iOS/Android）
-- **测试**: Vitest
+- **测试**: vitest（原生用例）+ 独立 `tsx` 脚本，两者混用，见下方「测试」一节
 - **认证**: NextAuth.js
 
 ## 项目结构
@@ -53,7 +53,7 @@ prisma/
 
 data/                       # JSON 文件存储（stories, branches, segments, characters 等）
 scripts/                    # 工具脚本
-tests/                      # Vitest 测试
+tests/                      # 测试（见下方「测试」一节）
 ```
 
 ## 常用命令
@@ -65,10 +65,41 @@ npm run db:migrate          # Prisma 迁移
 npm run db:push             # Prisma 推送 Schema
 npm run db:seed             # 数据库种子
 npm run db:studio           # Prisma Studio
-npx vitest                  # 运行测试
+npm test                    # 跑全部测试（见下方「测试」一节）
+npm run test:unit           # 只跑 vitest 原生用例
+npm run test:scripts        # 只跑独立 tsx 脚本
 npm run migrate:json        # JSON → PostgreSQL 迁移
 npm run migrate:validate    # 验证迁移
 ```
+
+## 测试
+
+**`tests/` 目录下混着两类测试，这是本项目最容易踩的坑：**
+
+| 类型 | 判断依据 | 运行方式 |
+|---|---|---|
+| **vitest 原生用例** | 文件里 `import { describe, it, expect } from 'vitest'` | `npx vitest run` |
+| **独立 tsx 脚本** | 自写 `assert()` 计数 + 结尾 `process.exit()` | `npx tsx tests/xxx.test.ts` |
+
+绝大多数测试是**独立 tsx 脚本**（因为它们要连真实数据库、跑真实 AI，不方便 mock）。
+把它们交给 vitest 会报 `No test suite found in file`，并且结尾的 `process.exit()`
+会把 vitest 的 worker 打崩（segfault）—— 所以 `vitest.config.ts` 按
+「有没有 import vitest」自动把它们排除掉（判定逻辑见 `scripts/test-manifest.ts`）。
+
+**统一入口**：`npm test` 两类都跑并汇总（`scripts/run-tests.ts`）。
+新增测试文件**不需要改任何配置**：想被 vitest 跑就 import vitest，想当独立脚本就直接写 `assert()`。
+
+```bash
+npm test                    # 全部
+npm test -- --unit          # 只跑 vitest 原生用例
+npm test -- --scripts       # 只跑独立 tsx 脚本
+npm test -- state-tracker   # 只跑文件名匹配关键字的独立脚本
+```
+
+**前置条件**：独立脚本需要数据库，先 `docker compose up -d postgres`。
+`DATABASE_URL` 会被 `tests/test-env.ts` 自动从容器主机名改写为 `localhost:5433`，
+**每个独立脚本都必须在所有其他 import 之前写 `import './test-env';`**，
+否则报 `getaddrinfo ENOTFOUND postgres`。
 
 ## 开发约定
 

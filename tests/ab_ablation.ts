@@ -19,9 +19,10 @@
  *   ④ 图谱 / 状态表增长量 —— 记忆系统是否真的在工作
  *
  * ── 运行 ──────────────────────────────────────────────────────────
- *   # 跑全部 4 档，2 个故事，每档续写 3 段
- *   DATABASE_URL=postgresql://gushi:gushi_dev@localhost:5433/gushi_dev \
- *     npx tsx tests/ab_ablation.ts
+ *   docker compose up -d postgres
+ *
+ *   # 跑全部 4 档，5 个故事，每档续写 5 段
+ *   npx tsx tests/ab_ablation.ts
  *
  *   # 只跑指定档位 / 指定段数
  *   npx tsx tests/ab_ablation.ts --arms=both,state --segments=5 --stories=3
@@ -29,10 +30,11 @@
  *   # 只看汇总（复用上次落盘结果，不重新生成）
  *   npx tsx tests/ab_ablation.ts --report-only
  *
+ * DATABASE_URL 会被 tests/test-env.ts 自动改写为宿主机地址，无需手动指定。
  * 结果输出到 Docs/ablation/ 目录（JSON + Markdown）。
  */
-import 'dotenv/config';
-import { mkdirSync, writeFileSync } from 'fs';
+import './test-env';
+import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import prisma from '../src/lib/prisma';
 import { buildFullPrompt } from '../src/lib/prompt-builder';
@@ -148,6 +150,49 @@ export function characterCoverage(segments: string[], names: string[]): number {
   const joined = segments.join('\n');
   const mentioned = names.filter(n => (joined.match(new RegExp(n, 'g')) || []).length > 0);
   return mentioned.length / names.length;
+}
+
+/** 基础统计量：均值 / 样本标准差 / 最小值 / 最大值（n-1 自由度） */
+export function stats(values: number[]): {
+  mean: number; std: number; min: number; max: number; n: number;
+} {
+  const n = values.length;
+  if (n === 0) return { mean: 0, std: 0, min: 0, max: 0, n: 0 };
+  const mean = values.reduce((s, v) => s + v, 0) / n;
+  const variance = n > 1
+    ? values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)
+    : 0;
+  return {
+    mean,
+    std: Math.sqrt(variance),
+    min: Math.min(...values),
+    max: Math.max(...values),
+    n,
+  };
+}
+
+/**
+ * 配对样本 t 检验（对比某档位与基线）。
+ * 样本量小时（n=5）只作参考，正式投稿需扩样本。
+ * 返回 t 值与近似双尾 p 值的粗估。
+ */
+export function pairedTTest(baseline: number[], treatment: number[]): {
+  t: number; df: number; significant: boolean;
+} {
+  const n = Math.min(baseline.length, treatment.length);
+  if (n < 2) return { t: 0, df: 0, significant: false };
+
+  const diffs = Array.from({ length: n }, (_, i) => treatment[i] - baseline[i]);
+  const dMean = diffs.reduce((s, v) => s + v, 0) / n;
+  const dStd = Math.sqrt(
+    diffs.reduce((s, v) => s + (v - dMean) ** 2, 0) / (n - 1),
+  );
+  if (dStd === 0) return { t: 0, df: n - 1, significant: false };
+
+  const t = dMean / (dStd / Math.sqrt(n));
+  // 小样本下用 |t| > 2.776 (df=4, p<0.05) 作粗略判据
+  const critical = n === 5 ? 2.776 : n === 4 ? 3.182 : 2.0;
+  return { t, df: n - 1, significant: Math.abs(t) > critical };
 }
 
 // ============================================================================
@@ -507,20 +552,49 @@ function buildMarkdown(results: RunResult[], stories: number, segments: number):
   }
   lines.push('');
 
-  // 跨故事平均
-  lines.push('## 三、跨故事平均（各档位）');
+  // 跨故事平均（带标准差 + 相对基线的配对检验）
+  lines.push('## 三、跨故事平均（各档位，均值 ± 标准差）');
   lines.push('');
-  lines.push('| 档位 | 平均相邻段重复度 | 平均角色覆盖率 | 平均图谱节点 |');
-  lines.push('|------|------:|------:|------:|');
+  lines.push('| 档位 | 相邻段重复度 ↓ | 角色覆盖率 ↑ | Prompt 字数 | 图谱节点 |');
+  lines.push('|------|------:|------:|------:|------:|');
+
+  const baselineSim = results.filter(r => r.arm === 'none').map(r => r.adjacentSim.avg);
+
   for (const arm of arms) {
     const rs = results.filter(r => r.arm === arm);
     if (rs.length === 0) continue;
-    const avgSim = rs.reduce((s, r) => s + r.adjacentSim.avg, 0) / rs.length;
-    const avgCov = rs.reduce((s, r) => s + r.charCoverage, 0) / rs.length;
-    const avgNodes = rs.reduce((s, r) => s + r.graphNodes, 0) / rs.length;
-    lines.push(`| \`${arm}\` | ${avgSim.toFixed(3)} | ${(avgCov * 100).toFixed(0)}% | ${avgNodes.toFixed(0)} |`);
+    const simS = stats(rs.map(r => r.adjacentSim.avg));
+    const covS = stats(rs.map(r => r.charCoverage));
+    const pS = stats(rs.map(r => r.promptLens.reduce((s, v) => s + v, 0) / r.promptLens.length));
+    const nS = stats(rs.map(r => r.graphNodes));
+    lines.push(
+      `| \`${arm}\` | ${simS.mean.toFixed(3)} ± ${simS.std.toFixed(3)} | ` +
+      `${(covS.mean * 100).toFixed(0)}% ± ${(covS.std * 100).toFixed(0)}% | ` +
+      `${pS.mean.toFixed(0)} ± ${pS.std.toFixed(0)} | ${nS.mean.toFixed(1)} ± ${nS.std.toFixed(1)} |`,
+    );
   }
   lines.push('');
+
+  // 相对基线的假设检验
+  if (baselineSim.length >= 2) {
+    lines.push('### 相对基线的配对 t 检验（相邻段重复度）');
+    lines.push('');
+    lines.push('| 档位 | 平均差值 | t 值 | df | 显著 (p<0.05) |');
+    lines.push('|------|------:|------:|------:|:---:|');
+    for (const arm of arms) {
+      if (arm === 'none') continue;
+      const rs = results.filter(r => r.arm === arm).map(r => r.adjacentSim.avg);
+      if (rs.length < 2) continue;
+      const test = pairedTTest(baselineSim, rs);
+      const diff = stats(rs).mean - stats(baselineSim).mean;
+      lines.push(
+        `| \`${arm}\` | ${diff >= 0 ? '+' : ''}${diff.toFixed(3)} | ${test.t.toFixed(2)} | ${test.df} | ${test.significant ? '✅ 是' : '❌ 否'} |`,
+      );
+    }
+    lines.push('');
+    lines.push('> 注：n=5 时样本量偏小，p 值仅作参考。正式投稿前建议每个配置重复 3 次以增强统计效力。');
+    lines.push('');
+  }
 
   // 生成片段（供人工阅读 / LLM-as-Judge 打分）
   lines.push('## 四、生成片段（供人工阅读与打分）');
@@ -550,69 +624,110 @@ function buildMarkdown(results: RunResult[], stories: number, segments: number):
 async function main() {
   const { arms, stories, segments, reportOnly } = parseArgs();
 
-  if (!reportOnly) {
-    console.log(`\n🧪 消融实验：${arms.length} 档 × ${stories} 故事 × ${segments} 段`);
-    console.log(`   档位：${arms.join(', ')}\n`);
+  if (reportOnly) {
+    // 复用最近一次落盘的结果，只重新生成汇总，不重新调 AI
+    const outDir = join(process.cwd(), 'Docs', 'ablation');
+    const files = existsSync(outDir)
+      ? readdirSync(outDir).filter(f => f.startsWith('ablation_results_') && f.endsWith('.json')).sort()
+      : [];
+    if (files.length === 0) {
+      console.error(`未找到历史结果。请先跑一次实验（去掉 --report-only）。\n查找目录：${outDir}`);
+      process.exit(1);
+    }
+    const latest = files[files.length - 1];
+    const results = JSON.parse(readFileSync(join(outDir, latest), 'utf-8')) as RunResult[];
+    console.log(`\n📂 复用结果：${latest}（${results.length} 条记录）`);
 
-    const results: RunResult[] = [];
+    // --report-only 只覆盖一份固定名字的报告，避免每次重生成都堆一个新文件
+    const mdPath = join(outDir, 'ablation_report.md');
+    writeFileSync(mdPath, buildMarkdown(results, stories, segments), 'utf-8');
+    console.log(`💾 已重新生成报告：${mdPath}`);
+    printSummary(results, [...new Set(results.map(r => r.arm))]);
+    return;
+  }
 
-    for (let i = 0; i < Math.min(stories, ALL_STORY_DEFS.length); i++) {
-      const def = ALL_STORY_DEFS[i];
-      const stats0 = await knowledgeGraph.getStats();
-      const graph0 = { nodes: stats0.totalNodes, edges: stats0.totalEdges };
+  console.log(`\n🧪 消融实验：${arms.length} 档 × ${stories} 故事 × ${segments} 段`);
+  console.log(`   档位：${arms.join(', ')}\n`);
+  warnIfTooFewSegments([], segments);
 
-      for (const arm of arms) {
-        console.log(`\n${'─'.repeat(60)}`);
-        console.log(`🎭 ${def.title} ｜ 档位：${ARM_LABELS[arm]} (\`${arm}\`)`);
-        console.log(`${'─'.repeat(60)}`);
+  const results: RunResult[] = [];
 
-        try {
-          const r = await runOneStory(def, i, arm, segments);
-          results.push(r);
-          const avgPrompt = r.promptLens.reduce((s, v) => s + v, 0) / r.promptLens.length;
-          console.log(`  Prompt 均值：${Math.round(avgPrompt)} 字`);
-          console.log(`  相邻段重复度：${r.adjacentSim.avg.toFixed(3)}（各段 ${r.adjacentSim.values.map(v => v.toFixed(2)).join(',')}）`);
-          console.log(`  角色覆盖率：${(r.charCoverage * 100).toFixed(0)}%`);
-          console.log(`  图谱：+${r.graphNodes - graph0.nodes} 节点 ／ 状态表：${r.stateObjects} 对象`);
-        } catch (e) {
-          console.error(`  ❌ 档位 ${arm} 执行失败：`, e);
-        }
+  for (let i = 0; i < Math.min(stories, ALL_STORY_DEFS.length); i++) {
+    const def = ALL_STORY_DEFS[i];
+    const stats0 = await knowledgeGraph.getStats();
+    const graph0 = { nodes: stats0.totalNodes, edges: stats0.totalEdges };
+
+    for (const arm of arms) {
+      console.log(`\n${'─'.repeat(60)}`);
+      console.log(`🎭 ${def.title} ｜ 档位：${ARM_LABELS[arm]} (\`${arm}\`)`);
+      console.log(`${'─'.repeat(60)}`);
+
+      try {
+        const r = await runOneStory(def, i, arm, segments);
+        results.push(r);
+        const avgPrompt = r.promptLens.reduce((s, v) => s + v, 0) / r.promptLens.length;
+        console.log(`  Prompt 均值：${Math.round(avgPrompt)} 字`);
+        console.log(`  相邻段重复度：${r.adjacentSim.avg.toFixed(3)}（各段 ${r.adjacentSim.values.map(v => v.toFixed(2)).join(',')}）`);
+        console.log(`  角色覆盖率：${(r.charCoverage * 100).toFixed(0)}%`);
+        console.log(`  图谱：+${r.graphNodes - graph0.nodes} 节点 ／ 状态表：${r.stateObjects} 对象`);
+      } catch (e) {
+        console.error(`  ❌ 档位 ${arm} 执行失败：`, e);
       }
     }
-
-    // 落盘
-    const outDir = join(process.cwd(), 'Docs', 'ablation');
-    mkdirSync(outDir, { recursive: true });
-    const stamp = new Date().toISOString().slice(0, 10);
-    const jsonPath = join(outDir, `ablation_results_${stamp}.json`);
-    const mdPath = join(outDir, `ablation_report_${stamp}.md`);
-
-    writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf-8');
-    writeFileSync(mdPath, buildMarkdown(results, stories, segments), 'utf-8');
-    console.log(`\n💾 已落盘：\n  ${jsonPath}\n  ${mdPath}`);
-
-    printSummary(results, arms);
-  } else {
-    console.log('（--report-only：跳过生成，仅汇总已有结果）');
   }
+
+  // 落盘
+  //
+  // 文件名必须带上实验参数 + 毫秒级时间戳，否则会互相覆盖：
+  //   ① 不同规模的实验（1 故事冒烟 vs 5 故事正式）曾撞名，冒烟结果覆盖了正式结果；
+  //   ② 同一秒内并发跑两次，秒级时间戳也会撞。
+  const outDir = join(process.cwd(), 'Docs', 'ablation');
+  mkdirSync(outDir, { recursive: true });
+  const now = new Date();
+  const stamp = [
+    now.toISOString().slice(0, 19).replace(/[:T]/g, '-'),
+    String(now.getMilliseconds()).padStart(3, '0'),
+  ].join('-');
+  const scope = `s${stories}x${segments}seg-${arms.join('_')}`;
+  const jsonPath = join(outDir, `ablation_results_${stamp}_${scope}.json`);
+  const mdPath = join(outDir, `ablation_report_${stamp}_${scope}.md`);
+
+  writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf-8');
+  writeFileSync(mdPath, buildMarkdown(results, stories, segments), 'utf-8');
+  console.log(`\n💾 已落盘：\n  ${jsonPath}\n  ${mdPath}`);
+
+  printSummary(results, arms);
 
   console.log('\n✅ 消融实验完成');
 }
 
+/** 校验已有结果是否包含足够的段落对，否则重复度指标全为 0（无意义） */
+function warnIfTooFewSegments(results: RunResult[], segmentsPerArm: number) {
+  if (segmentsPerArm >= 2) return;
+  console.warn(
+    `\n⚠️  每档只续写 ${segmentsPerArm} 段 —— 相邻段重复度需要至少 2 段才有意义，` +
+    `当前所有重复度都是 0.000。正式实验请用 --segments=5。`,
+  );
+}
+
 function printSummary(results: RunResult[], arms: Arm[]) {
-  console.log('\n' + '═'.repeat(66));
-  console.log('📊 消融实验汇总（跨故事平均）');
-  console.log('═'.repeat(66));
-  console.log(`${'档位'.padEnd(22)} ${'相邻段重复度'.padEnd(14)} ${'角色覆盖率'.padEnd(12)}`);
-  console.log('─'.repeat(66));
+  console.log('\n' + '═'.repeat(78));
+  console.log('📊 消融实验汇总（跨故事，均值 ± 标准差）');
+  console.log('═'.repeat(78));
+  console.log(`${'档位'.padEnd(20)} ${'相邻段重复度 ↓'.padEnd(20)} ${'角色覆盖率 ↑'.padEnd(16)}`);
+  console.log('─'.repeat(78));
   for (const arm of arms) {
     const rs = results.filter(r => r.arm === arm);
     if (rs.length === 0) continue;
-    const avgSim = rs.reduce((s, r) => s + r.adjacentSim.avg, 0) / rs.length;
-    const avgCov = rs.reduce((s, r) => s + r.charCoverage, 0) / rs.length;
-    console.log(`${ARM_LABELS[arm].padEnd(20)} ${avgSim.toFixed(3).padEnd(14)} ${(avgCov * 100).toFixed(0) + '%'}`);
+    const simS = stats(rs.map(r => r.adjacentSim.avg));
+    const covS = stats(rs.map(r => r.charCoverage));
+    console.log(
+      `${ARM_LABELS[arm].padEnd(18)} ` +
+      `${(simS.mean.toFixed(3) + ' ± ' + simS.std.toFixed(3)).padEnd(20)} ` +
+      `${((covS.mean * 100).toFixed(0) + '% ± ' + (covS.std * 100).toFixed(0) + '%')}`,
+    );
   }
-  console.log('─'.repeat(66));
+  console.log('─'.repeat(78));
   console.log('提示：重复度越低越好（情节不套路）；角色覆盖率越高越好（不丢角色）');
 }
 

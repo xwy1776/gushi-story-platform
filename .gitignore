@@ -55,6 +55,9 @@ public/generated-images/*
 # Database backups
 /backups/
 
+# Ablation run logs (generated text is already in ablation_results_*.json)
+Docs/ablation/run_*.log
+
 # Knowledge graph runtime data (regenerated from story segments)
 data/knowledge-graph.json
 

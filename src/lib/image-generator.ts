@@ -694,36 +694,61 @@ ${imageList}
   }
 
   // 构建角色视觉速查表：中文名 → 英文名 + 外观关键词
+  //
+  // 背景：扩散模型在同一张图里出现多个"外观未锁定"的人物时，
+  // 会出现「特征串味」——路人的服装/发色被迁移到主角身上，或主角的面部特征
+  // 被平均成"路人脸"。故此处必须：
+  //   ① 给已登记角色一段完整、可复制的英文外观串（视觉锚点）
+  //   ② 明确要求路人以"虚化、无面部细节"的方式呈现，且不得继承主角特征
   let characterBlock = '';
   const chars = (ctx?.characters || []).filter(c => c && c.name);
   if (chars.length > 0) {
     const lines = chars.map(c => {
       const parts = [`- ${c.name}`];
       if (c.canonicalName) parts.push(`英文名：${c.canonicalName}`);
-      if (c.appearance) parts.push(`外观：${c.appearance}`);
+      if (c.appearance) parts.push(`外观（英文，须逐字复用）：${c.appearance}`);
       if (c.role) parts.push(`定位：${c.role}`);
       return parts.join(' | ');
     });
-    characterBlock = `\n已登记角色（若出现在镜头中，必须按外观关键词完整描写 — 不要只写 "a boy / a man"，要写清楚发型、发色、服装、年龄段、标志性特征）：\n${lines.join('\n')}\n`;
+    characterBlock = `\n【已登记角色 · 视觉锚点】
+以下角色已有固定外观设定，**在 enPrompt 中必须逐条复制其"外观"英文串**，不得改写、简化或与其他人物的特征混合：
+${lines.join('\n')}
+
+【多人物场景 · 防串味规则】（当镜头中出现两个及以上人物时，必须严格遵守）
+A. 已登记角色一律用"视觉锚点"原文，且每个角色单独成句，用逗号或分号隔开，例如：
+   "Zhang Qian, a tall man in his thirties with a long black beard, wearing a tattered Han dynasty official robe and holding a yak-tail banner; "
+B. 未登记的路人 / 士兵 / 百姓 / 群像，必须：
+   - 统一用集合名词描述，如 "a group of soldiers in generic armor" / "blurred crowd of villagers"，不要给路人起名、不要写面部细节；
+   - **明确标注为背景/虚化**：加 "in the background, out of focus, faces not visible"；
+   - **禁止**把"视觉锚点"里的发型、发色、服装、标志性特征用在路人身上。
+C. 镜头里同时有主角与路人时，enPrompt 的书写顺序固定为：
+   [主角 = 视觉锚点原文] → [动作] → [路人 = 集合名词 + out of focus] → [环境/光线/构图]
+D. 若镜头里只有一个已登记角色，**不要**凭空添加其他人物，保持单主体。
+`;
   }
 
   const prompt = `你是一位电影分镜与 diffusion 模型 prompt 工程师。
 分析下面这段中文故事（"当前段落"），提取 1-3 个最具视觉画面感的镜头，并为每个镜头同时给出：
 - description：中文一句话镜头说明（10-40字，给人看）
-- enPrompt：英文图片生成 prompt（给 diffusion 模型看），80-140 词，包含：**主体（含具体外观）、动作、环境、光线、镜头景别（wide shot / medium / close-up）、构图、氛围**。
+- enPrompt：英文图片生成 prompt（给 diffusion 模型看），90-160 词，包含：**主体（含具体外观）、动作、环境、光线、镜头景别（wide shot / medium / close-up）、构图、氛围**。
 - type：scene | character | object
+- characters：该镜头中出现的"已登记角色"中文名数组（没有则空数组）
 
 【关键约束】
 1. 镜头必须**只来自"当前段落"**。"近 N 段摘要"和"场景状态"仅用于理解世界观和画面连贯，不得把摘要中的历史事件当镜头。
 2. enPrompt 必须是纯英文，不得出现任何中文字符、假名、朝鲜字；不得原样抄写段落里的中文句子。
-3. 若镜头里出现"已登记角色"，必须按下方"外观"关键词还原（同人/动漫 IP 请用原作经典造型），不得笼统写 "a boy / a man / a woman"。
-4. 若故事类型是动漫/同人/轻小说，在 enPrompt 里保留角色的英文名（如 "Obito Uchiha"），并附带外观描述。
-5. 若给出了"已知场景状态"，enPrompt 里的环境/光线/时间描述必须与之一致（例如 scene state 说 dusk rainy，就不能写 sunny morning）。
-6. 在 enPrompt 结尾追加固定短语：", no text, no captions, no subtitles, no speech bubbles, no calligraphy, no watermark"。
-7. 严格输出 JSON 数组，不要 markdown、不要额外文字。
+3. 若镜头里出现"已登记角色"，必须**逐字复制**其"外观"英文串（同人/动漫 IP 请用原作经典造型），不得笼统写 "a boy / a man / a woman"，也不得简化或随意改写。
+4. **多人物防串味**（最容易出错，务必遵守）：
+   - 每个已登记角色的外观必须**独立完整**地写出，各自成句；
+   - 未登记的路人/士兵/群像一律用集合名词 + "out of focus, faces not visible"，**严禁**套用已登记角色的发型、发色、服装或标志性特征；
+   - 不要把两个角色的特征拼在一起（例如"张骞的胡须 + 汉武帝的冕服"是错误的）。
+5. 若故事类型是动漫/同人/轻小说，在 enPrompt 里保留角色的英文名（如 "Obito Uchiha"），并附带外观描述。
+6. 若给出了"已知场景状态"，enPrompt 里的环境/光线/时间描述必须与之一致（例如 scene state 说 dusk rainy，就不能写 sunny morning）。
+7. 在 enPrompt 结尾追加固定短语：", no text, no captions, no subtitles, no speech bubbles, no calligraphy, no watermark"。
+8. 严格输出 JSON 数组，不要 markdown、不要额外文字。
 
 格式：
-[{"description":"...","enPrompt":"...","type":"scene"}]
+[{"description":"...","enPrompt":"...","type":"scene","characters":["角色名"]}]
 
 ${genreHint}
 ${descHint}
@@ -742,6 +767,7 @@ ${segment.slice(0, 1500)}`;
       description: string;
       enPrompt?: string;
       type?: 'scene' | 'character' | 'object';
+      characters?: string[];
     }>>(text);
 
     if (!parsed) {
@@ -754,10 +780,32 @@ ${segment.slice(0, 1500)}`;
       const enPrompt = (item.enPrompt || '').trim();
       // 若 AI 没输出英文 prompt，退回模板拼接
       const imgPrompt = enPrompt || buildImagePrompt(item.description || '', type);
+
+      // 防串味自检：镜头里登记了多个角色，但 enPrompt 里没带上对应的英文外观串，
+      // 说明 AI 可能把角色写笼统了 —— 打日志便于排查（不阻断生成）
+      const shotChars = Array.isArray(item.characters) ? item.characters.filter(Boolean) : [];
+      if (shotChars.length > 0) {
+        const missing = shotChars.filter(name => {
+          const hint = (ctx?.characters || []).find(c => c.name === name);
+          const token = hint?.canonicalName || name;
+          return !imgPrompt.includes(token);
+        });
+        if (missing.length > 0) {
+          console.warn(
+            `[image-generator] 防串味自检：镜头含角色 [${shotChars.join('、')}]，` +
+            `但 enPrompt 未出现 [${missing.join('、')}] 的视觉锚点，可能外观漂移`,
+          );
+        }
+      }
+      if (shotChars.length >= 2) {
+        console.log(`[image-generator] 多人物镜头（${shotChars.join('、')}）——已启用防串味规则`);
+      }
+
       return {
         description: item.description || enPrompt.slice(0, 40),
         type,
         prompt: imgPrompt,
+        characters: shotChars.length > 0 ? shotChars : undefined,
       };
     });
   } catch (error) {

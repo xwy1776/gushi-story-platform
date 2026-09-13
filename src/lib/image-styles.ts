@@ -33,6 +33,8 @@ export interface SceneDescription {
   prompt: string;
   description: string;
   type: 'scene' | 'character' | 'object';
+  /** 该镜头中出现的"已登记角色"中文名。用于排查多人物串味、以及后续做外观一致性校验 */
+  characters?: string[];
 }
 
 export interface GeneratedImage {

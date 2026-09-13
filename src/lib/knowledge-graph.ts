@@ -460,6 +460,42 @@ class KnowledgeGraph {
     return issues;
   }
 
+  /**
+   * 从图谱中派生出与给定实体敌对的势力/角色名列表。
+   *
+   * 用途：状态表做「地点归属矛盾」检测时，需要知道"谁是这个地点的敌人"。
+   * 旧实现靠一张硬编码的势力对照表（汉/匈奴、魏/蜀/吴），表外势力直接失效。
+   * 改为从图谱的 `conflicts_with` 边派生后，任何被记录过敌对关系的势力都能被检出，
+   * 不再依赖人工维护的对照表。
+   *
+   * @param entityName 目标实体名（如地点"洛阳"）
+   * @param branchId 分支（图谱按分支隔离）
+   * @returns 与之存在 conflicts_with 关系的实体名列表；查不到返回空数组
+   */
+  async getOpposingFactions(entityName: string, branchId: string): Promise<string[]> {
+    const graph = await this.load();
+    if (!graph || !entityName) return [];
+
+    const node = graph.nodes.find(n => n.name === entityName && n.branchId === branchId);
+    if (!node) return [];
+
+    const oppositions = new Set<string>();
+    for (const edge of graph.edges) {
+      // 只看当前分支的敌对边
+      if (edge.branchId !== branchId || edge.type !== 'conflicts_with') continue;
+      // 边可能以任一方向连接：entity → other 或 other → entity
+      const otherId = edge.source === node.id ? edge.target
+        : edge.target === node.id ? edge.source
+        : null;
+      if (!otherId) continue;
+
+      const other = graph.nodes.find(n => n.id === otherId);
+      if (other && other.name !== entityName) oppositions.add(other.name);
+    }
+
+    return [...oppositions];
+  }
+
   // ==========================================================================
   // Prompt 构建方法
   // ==========================================================================

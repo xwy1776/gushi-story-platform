@@ -12,11 +12,13 @@
  * 4. summarize —— 按类型统计
  *
  * 注意：本文件需要数据库（状态表挂在 DirectorState.worldVariables 上）。
- *   DATABASE_URL=postgresql://gushi:gushi_dev@localhost:5433/gushi_dev npx tsx tests/narrative-state-tracker.test.ts
+ *   docker compose up -d postgres && npx tsx tests/narrative-state-tracker.test.ts
+ * DATABASE_URL 会被 tests/test-env.ts 自动改写为宿主机地址，无需手动指定。
  */
-import 'dotenv/config';
+import './test-env';
 import prisma from '../src/lib/prisma';
 import { narrativeStateTracker } from '../src/lib/narrative-state-tracker';
+import { knowledgeGraph } from '../src/lib/knowledge-graph';
 import type { NarrativeObjectState } from '../src/lib/narrative-state-tracker';
 
 let passed = 0;
@@ -71,6 +73,15 @@ async function main() {
       visibility: 'PUBLIC',
       owner: { connect: { id: user.id } },
     } as any,
+  });
+
+  // 图谱数据：用于验证「敌对势力从图谱派生」这条泛化路径。
+  // 洛阳 --conflicts_with--> 董卓，让"董卓控制洛阳"与"洛阳归汉室"的设定能被检出。
+  const lyNode = await knowledgeGraph.getOrCreateNode({ type: 'location', name: '洛阳', branchId: BRANCH_A });
+  const dzNode = await knowledgeGraph.getOrCreateNode({ type: 'character', name: '董卓', branchId: BRANCH_A });
+  await knowledgeGraph.addEdge({
+    source: lyNode.id, target: dzNode.id, type: 'conflicts_with',
+    branchId: BRANCH_A, segmentId: 'seed',
   });
 
   // ── 1. 写入 + 读回 ──
@@ -152,14 +163,67 @@ async function main() {
   );
   assert(aliveConflicts.length === 0, '存活角色正常行动 → 无矛盾');
 
-  // 地点归属矛盾：洛阳归董卓，写"汉军控制洛阳"应预警
+  // 地点归属矛盾：洛阳归汉室，但内容写"被董卓势力控制"应预警
+  //
+  // 关键：敌对势力不靠硬编码表，而是从知识图谱的 conflicts_with 边派生。
+  // 这正是修复「势力表外就失效」缺陷后的泛化路径。
+  console.log('\n地点归属矛盾（敌对势力从图谱派生）:');
   const locStates = [
-    mkState('ns_ly', 'location', '洛阳', BRANCH_A, { controller: '董卓' }),
+    mkState('ns_ly', 'location', '洛阳', BRANCH_A, { controller: '汉室', status: '东汉都城' }),
   ];
-  const locConflicts = narrativeStateTracker.checkPropertyConflicts(locStates, '汉军已牢牢控制洛阳城。');
+
+  const oppositions = await knowledgeGraph.getOpposingFactions('洛阳', BRANCH_A);
+  assert(oppositions.includes('董卓'), `从图谱派生出洛阳的敌对势力 [${oppositions.join('、')}]`);
+
+  const locConflicts = narrativeStateTracker.checkPropertyConflicts(
+    locStates, '董卓势力已牢牢控制洛阳城。', { opposingFactions: oppositions },
+  );
   assert(
     locConflicts.some(c => c.objectName === '洛阳' && c.property === 'controller'),
-    '地点归属与设定冲突 → 报矛盾',
+    '地点归属与设定冲突 → 报矛盾（靠图谱派生，非硬编码表）',
+  );
+
+  // 只出现己方势力 → 不误报
+  const locOkConflicts = narrativeStateTracker.checkPropertyConflicts(
+    locStates, '汉室牢牢控制着洛阳城。', { opposingFactions: oppositions },
+  );
+  assert(
+    !locOkConflicts.some(c => c.objectName === '洛阳' && c.property === 'controller'),
+    '己方势力正常控制 → 不误报',
+  );
+
+  // 不传敌对势力时，退回内置兜底表也能识别常见势力
+  const fallbackConflicts = narrativeStateTracker.checkPropertyConflicts(
+    [mkState('ns_ly2', 'location', '洛阳', BRANCH_A, { controller: '汉室', status: '东汉都城' })],
+    '董卓大军攻入洛阳。',
+  );
+  assert(
+    fallbackConflicts.some(c => c.objectName === '洛阳'),
+    '未传敌对势力时，内置兜底表仍能识别常见势力',
+  );
+
+  // 图谱里查不到的地点 → 派生为空数组，不报错
+  const noOppositions = await knowledgeGraph.getOpposingFactions('不存在的地点', BRANCH_A);
+  assert(Array.isArray(noOppositions) && noOppositions.length === 0, '图谱查不到的地点 → 返回空数组');
+
+  // ── 4.5 关系矛盾 ──
+  console.log('\n关系矛盾检测:');
+  const brokenRel = [
+    mkState('ns_rel', 'relationship', '刘备-关羽', BRANCH_A, { between: '刘备-关羽', status: '破裂' }),
+  ];
+  const relConflicts = narrativeStateTracker.checkPropertyConflicts(
+    brokenRel, '刘备与关羽携手并肩，共图大业。',
+  );
+  assert(
+    relConflicts.some(c => c.objectName === '刘备-关羽' && c.property === 'status'),
+    '已破裂关系写成友好互动 → 报矛盾',
+  );
+  const relOk = narrativeStateTracker.checkPropertyConflicts(
+    brokenRel, '刘备与关羽反目成仇，各奔东西。',
+  );
+  assert(
+    !relOk.some(c => c.objectName === '刘备-关羽' && c.property === 'status'),
+    '正常敌对描写 → 不误报',
   );
 
   // 空状态表 → 无矛盾（边界情况）
@@ -196,6 +260,9 @@ async function main() {
   await prisma.directorState.deleteMany({ where: { storyId: STORY_ID } }).catch(() => {});
   await prisma.story.delete({ where: { id: STORY_ID } }).catch(() => {});
   await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
+  // 图谱是 JSON 文件存储，重置以免污染 data/
+  await knowledgeGraph.resetForTest().catch(() => {});
+  console.log('\n(测试结束已重置图谱文件)');
 
   console.log(`\n📊 Results: ${passed} passed, ${failed} failed`);
   await prisma.$disconnect();

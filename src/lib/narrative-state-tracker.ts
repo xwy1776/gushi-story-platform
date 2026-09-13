@@ -30,6 +30,31 @@ import { callAIText, extractJsonFromAI } from './ai-client';
 // 类型定义
 // ============================================================================
 
+/**
+ * 内置的常见历史势力对照表（兜底用）。
+ *
+ * ⚠️ 这只是一张兜底表，覆盖面天然有限。真正的敌对关系应当从知识图谱的
+ * `conflicts_with` 边派生（见 KnowledgeGraph.getOpposingFactions），
+ * 通过 checkPropertyConflicts 的 options.opposingFactions 传入 —— 那样才能
+ * 泛化到任意势力名。
+ */
+const BUILTIN_OPPOSING_FACTIONS: Record<string, string[]> = {
+  '汉': ['匈奴', '胡人'],
+  '汉朝': ['匈奴', '胡人'],
+  '汉室': ['董卓', '董卓势力', '曹', '曹魏'],
+  '匈奴': ['汉军', '汉朝', '汉'],
+  '魏': ['蜀', '吴', '曹'],
+  '曹魏': ['蜀', '吴', '蜀汉'],
+  '蜀': ['魏', '曹', '吴'],
+  '蜀汉': ['魏', '曹魏', '吴'],
+  '吴': ['魏', '曹', '蜀'],
+  '大唐': ['吐蕃', '回纥', '突厥'],
+  '唐朝': ['吐蕃', '回纥', '突厥'],
+  '吐蕃': ['唐', '唐朝', '大唐'],
+  '秦': ['燕', '赵', '楚', '齐', '魏', '韩'],
+  '燕': ['秦'],
+};
+
 /** 叙事对象类型 */
 export type NarrativeObjectType =
   | 'character'    // 角色
@@ -359,7 +384,16 @@ ${segmentContent.slice(0, 3000)}
    */
   checkPropertyConflicts(
     states: NarrativeObjectState[],
-    newSegmentContent: string
+    newSegmentContent: string,
+    options?: {
+      /**
+       * 已知的敌对势力名列表，用于检测"地点归属被敌方夺占"。
+       * 应由调用方从知识图谱的 `conflicts_with` 边派生后传入 —— 那样可以
+       * 泛化到任意势力名，不必依赖下面的硬编码表。
+       * 不传时退回内置的常见历史势力对照表。
+       */
+      opposingFactions?: string[];
+    },
   ): Array<{ objectName: string; property: string; expected: string; found: string; severity: 'error' | 'warning' }> {
     const conflicts: Array<{
       objectName: string;
@@ -389,25 +423,31 @@ ${segmentContent.slice(0, 3000)}
         }
       }
 
-      // 地点归属矛盾
+      // 地点归属矛盾：地点已被某势力控制，但新段落里出现了敌方势力
       if (obj.type === 'location' && obj.properties['controller']) {
         const controller = obj.properties['controller'];
-        const oppositeKeywords: Record<string, string[]> = {
-          '汉': ['匈奴', '胡人'],
-          '匈奴': ['汉军', '汉朝'],
-          '魏': ['蜀', '吴'],
-          '蜀': ['魏', '曹'],
-          '吴': ['魏', '曹'],
-        };
-        const opposites = oppositeKeywords[controller];
-        if (opposites && !obj.properties['status']?.includes('被占')) {
+
+        // 敌对势力来源：优先用调用方从知识图谱派生的列表，其次查内置对照表。
+        //
+        // 旧实现只有一张硬编码的势力对照表（汉/匈奴、魏/蜀/吴 等），
+        // 任何表外的势力（如"董卓势力"）都会直接跳过检测 —— 无法泛化。
+        // 现在改为以知识图谱为准：图谱里 `洛阳 --conflicts_with--> 董卓势力`
+        // 这条边就能让"汉军控制洛阳"这类写法被检出。
+        const opposites = [
+          ...(options?.opposingFactions ?? []),
+          ...(BUILTIN_OPPOSING_FACTIONS[controller] ?? []),
+        ].filter(kw => kw && kw !== controller);
+
+        // status 已标明"被占"时，归属本来就在变动，不再重复告警
+        if (opposites.length > 0 && !obj.properties['status']?.includes('被占')) {
           const mentionContext = this.extractMentionContext(newSegmentContent, obj.name);
-          if (opposites.some(kw => mentionContext.includes(kw))) {
+          const hit = opposites.find(kw => mentionContext.includes(kw));
+          if (hit) {
             conflicts.push({
               objectName: obj.name,
               property: 'controller',
               expected: controller,
-              found: `出现敌方势力: ${opposites.find(kw => mentionContext.includes(kw))}`,
+              found: `出现敌方势力: ${hit}`,
               severity: 'warning',
             });
           }

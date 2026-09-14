@@ -412,9 +412,18 @@ export async function buildFullPrompt(options: BuildPromptOptions): Promise<Buil
   // ─── 3.5 叙事状态表注入（SCORE 动态状态追踪） ───
   // 持续追踪角色/地点/势力等叙事关键对象的符号化状态，
   // 续写前把状态表注入 Prompt，防止"前文说在上海，后文跑北京"类矛盾。
-  // 环境变量 MEMORY_MODULES_ENABLED=false 可关闭（用于 A/B 对比测试）
+  //
+  // 开关（用于消融实验，见 tests/ab_compare.ts）：
+  //   MEMORY_MODULES_ENABLED=false  → 总开关，关闭全部记忆注入
+  //   MEMORY_STATE_TABLE=false      → 单独关闭状态表（其余模块照常）
+  //   MEMORY_KNOWLEDGE_GRAPH=false  → 单独关闭知识图谱
+  // 二者默认跟随总开关，可独立覆盖，从而跑出 4 档消融：
+  //   无记忆 / 仅状态表 / 仅图谱 / 状态表+图谱
   const memoryModulesEnabled = process.env.MEMORY_MODULES_ENABLED !== 'false';
-  if (memoryModulesEnabled) {
+  const stateTableEnabled = memoryModulesEnabled && process.env.MEMORY_STATE_TABLE !== 'false';
+  const knowledgeGraphEnabled = memoryModulesEnabled && process.env.MEMORY_KNOWLEDGE_GRAPH !== 'false';
+
+  if (stateTableEnabled) {
     try {
       const stateTableText = await narrativeStateTracker.buildPromptContext(
         storyId, branchId, tailSegment.id,
@@ -428,7 +437,7 @@ export async function buildFullPrompt(options: BuildPromptOptions): Promise<Buil
   // ─── 3.8 知识图谱上下文注入（DOME MEM） ───
   // 从当前段落涉及的角色出发，做 BFS 邻域查询，
   // 把"谁跟谁什么关系、谁导致了什么"结构化注入，约束角色关系一致性。
-  if (memoryModulesEnabled) {
+  if (knowledgeGraphEnabled) {
     try {
       const charRecords = await prisma.character.findMany({ where: { id: { in: allCharIds } } });
       const charNames = charRecords.map(c => c.name);

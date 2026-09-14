@@ -4,6 +4,9 @@
  * 运行: npx tsx tests/e2e.test.ts
  */
 
+// 必须最先导入：在 prisma 读取 DATABASE_URL 之前把容器主机名改写成宿主机地址
+import './test-env';
+
 import { estimateTokens, extractSummaryFromSegment } from '../src/lib/context-summarizer';
 import { extractKeyEvents, buildEventPrompt } from '../src/lib/event-tracker';
 import { ConsistencyChecker, type CharacterStateForCheck } from '../src/lib/consistency-checker';

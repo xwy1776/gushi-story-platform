@@ -14,6 +14,7 @@ import { directorManager } from '@/lib/director-manager';
 import { contextSummarizer } from '@/lib/context-summarizer';
 import { getOrderedChain } from '@/lib/chain-helpers';
 import { getCachedReferenceImages, searchReferenceImages, type ReferenceImageHint } from '@/lib/reference-image-search';
+import { deriveImageSeed } from '@/lib/image-seed';
 
 export async function POST(request: NextRequest) {
   try {
@@ -171,19 +172,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 方案 B：基于角色名 + 段落 ID 派生 seed，保证角色面部一致的同时跨段构图多样
-    let seed: number | undefined;
-    if (characters.length > 0) {
-      const charKey = characters.map(c => c.canonicalName || c.name).sort().join('|');
-      // Incorporate segmentId so different segments get different seeds even with same characters
-      const key = `${charKey}|${segmentId}`;
-      let h = 2166136261;
-      for (let i = 0; i < key.length; i++) {
-        h ^= key.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-      }
-      seed = Math.abs(h) % 2147483647;
-    }
+    // seed 派生：主角锚定 + 场景微扰（见 src/lib/image-seed.ts）
+    //
+    // 旧实现用「全部角色名 + segmentId」派生 seed，导致两个问题：
+    //   ① 段落里多加一个路人 → seed 全变 → 主角的脸跟着变（章真毓反馈的串味根因）
+    //   ② segmentId 参与派生 → 相邻段落必然不同 seed → 跨段面部不一致
+    // 新实现只锚定主角外观，路人不再影响 seed。
+    const seed = deriveImageSeed(characters, segmentContent);
 
     // 确定使用的风格：显式传入 > 自动分析
     let styleUsed: ImageStyle;

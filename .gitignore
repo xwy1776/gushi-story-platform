@@ -55,8 +55,17 @@ public/generated-images/*
 # Database backups
 /backups/
 
+# Ablation run logs (generated text is already in ablation_results_*.json)
+Docs/ablation/run_*.log
+
 # Knowledge graph runtime data (regenerated from story segments)
 data/knowledge-graph.json
 
 # Prisma config (incompatible with current Prisma version)
 prisma.config.ts
+
+# 交付压缩包（产出物，不进仓库）
+*.zip
+
+# 进行中的实验轮（跑完才 rename 成 .json；半截轮不得进汇总，也不该进仓库）
+*.wip

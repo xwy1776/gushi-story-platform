@@ -32,6 +32,9 @@
  *   # 只看汇总（复用上次落盘结果，不重新生成）
  *   npx tsx tests/ab_ablation.ts --report-only
  *
+ *   # 跨轮汇总（把所有历史结果文件当成独立轮次，输出 ablation_report_rounds.md）
+ *   npx tsx tests/ab_ablation.ts --rounds-report
+ *
  * DATABASE_URL 会被 tests/test-env.ts 自动改写为宿主机地址，无需手动指定。
  * 结果输出到 Docs/ablation/ 目录（JSON + Markdown）。
  */
@@ -101,7 +104,114 @@ function parseArgs() {
     stories: parseInt(get('stories', '2'), 10),
     segments: parseInt(get('segments', '3'), 10),
     reportOnly: argv.includes('--report-only'),
+    roundsReport: argv.includes('--rounds-report'),
   };
+}
+
+// ============================================================================
+// 多轮汇总
+// ============================================================================
+
+/**
+ * 跨轮汇总。
+ *
+ * 为什么需要：单轮 n=5 时，一个故事的退化复读事件就能把该档均值抬高约 0.1，
+ * 超过档间真实差异（见 Docs/ablation/退化复读诊断.md）。所以必须跑多轮、
+ * 并且只拿**非退化中位数**做检验。
+ *
+ * 两层聚合：
+ *   ① 每轮各自汇总一次 → 得到每档「轮均值 ± 轮间标准差」，看稳定性
+ *   ② 按故事配对：每个故事先在各轮内取中位数并跨轮平均 → 得到 n=故事数 的
+ *      配对样本，再做配对 t 检验。这样配对单位仍然是故事，轮次只用来降噪。
+ */
+function buildRoundsMarkdown(rounds: RunResult[][], arms: Arm[]): string {
+  const storyTitles = [...new Set(rounds.flat().map(r => r.story))];
+
+  // 每轮每档的汇总量
+  const perRound: Record<string, { median: number; degRate: number; degCount: number; n: number }[]> = {};
+  for (const arm of arms) perRound[arm] = [];
+  for (const round of rounds) {
+    for (const arm of arms) {
+      const vals = round.filter(r => r.arm === arm).flatMap(r => r.adjacentSim.values);
+      if (vals.length === 0) continue;
+      const s = splitSimilarity(vals);
+      perRound[arm].push({ median: s.restMedian, degRate: s.degenerateRate, degCount: s.degenerateCount, n: s.nPairs });
+    }
+  }
+
+  // 按故事配对：每个故事跨轮平均后的非退化中位数
+  const perStory = (arm: Arm, story: string): number | null => {
+    const vals: number[] = [];
+    for (const round of rounds) {
+      const r = round.find(x => x.story === story && x.arm === arm);
+      if (r) vals.push(splitSimilarity(r.adjacentSim.values).restMedian);
+    }
+    return vals.length === 0 ? null : vals.reduce((a, b) => a + b, 0) / vals.length;
+  };
+  const storySeries = (arm: Arm): number[] =>
+    storyTitles.map(s => perStory(arm, s)).filter((v): v is number => v !== null);
+
+  const lines: string[] = [];
+  lines.push('# 多轮汇总（跨轮聚合）');
+  lines.push('');
+  lines.push(`> 数据来源：${rounds.length} 轮独立实验，每轮 ${storyTitles.length} 故事 × ${arms.length} 档。`);
+  lines.push('> 各轮结果文件按修改时间排序，全部纳入。');
+  lines.push('');
+  lines.push('## 一、每档的轮均值 ± 轮间标准差');
+  lines.push('');
+  lines.push('| 档位 | 非退化中位数 ↓ | 退化复读率 ↓ | 各轮中位数 |');
+  lines.push('|------|------:|------:|------|');
+  for (const arm of arms) {
+    const rs = perRound[arm];
+    if (rs.length === 0) continue;
+    const med = stats(rs.map(x => x.median));
+    const deg = stats(rs.map(x => x.degRate));
+    const detail = rs.map(x => x.median.toFixed(3)).join(' / ');
+    lines.push(
+      `| \`${arm}\` | ${med.mean.toFixed(3)} ± ${med.std.toFixed(3)} | ` +
+      `${deg.mean.toFixed(2)} ± ${deg.std.toFixed(2)} | ${detail} |`,
+    );
+  }
+  lines.push('');
+  lines.push('> **轮间标准差**这一列是关键：如果它和档间差同量级，说明这个样本量还测不出差异。');
+  lines.push('');
+
+  lines.push('## 二、按故事配对的 t 检验（以跨轮平均的非退化中位数为配对样本）');
+  lines.push('');
+  const base = storySeries('none');
+  if (base.length >= 2) {
+    lines.push(`配对单位：故事（n=${base.length}），每档相对 \`none\` 基线。`);
+    lines.push('');
+    lines.push('| 档位 | 均值 | 平均差值 | t 值 | df | 显著 (p<0.05) |');
+    lines.push('|------|------:|------:|------:|------:|:---:|');
+    for (const arm of arms) {
+      const s = storySeries(arm);
+      if (s.length < 2) continue;
+      const m = stats(s);
+      if (arm === 'none') {
+        lines.push(`| \`${arm}\`（基线） | ${m.mean.toFixed(3)} | — | — | — | — |`);
+        continue;
+      }
+      const test = pairedTTest(base, s);
+      const diff = m.mean - stats(base).mean;
+      lines.push(
+        `| \`${arm}\` | ${m.mean.toFixed(3)} | ${diff >= 0 ? '+' : ''}${diff.toFixed(3)} | ` +
+        `${test.t.toFixed(2)} | ${test.df} | ${test.significant ? '✅ 是' : '❌ 否'} |`,
+      );
+    }
+  } else {
+    lines.push('（故事数不足，无法配对检验）');
+  }
+  lines.push('');
+  lines.push('## 三、逐故事明细（跨轮平均的非退化中位数）');
+  lines.push('');
+  lines.push(`| 故事 | ${arms.map(a => `\`${a}\``).join(' | ')} |`);
+  lines.push(`|------|${arms.map(() => '------:').join('|')}|`);
+  for (const s of storyTitles) {
+    lines.push(`| ${s} | ${arms.map(a => { const v = perStory(a, s); return v === null ? '—' : v.toFixed(3); }).join(' | ')} |`);
+  }
+  lines.push('');
+  return lines.join('\n');
 }
 
 // ============================================================================
@@ -730,20 +840,69 @@ function buildMarkdown(results: RunResult[], stories: number, segments: number):
 // ============================================================================
 
 async function main() {
-  const { arms, stories, segments, reportOnly } = parseArgs();
+  const { arms, stories, segments, reportOnly, roundsReport } = parseArgs();
+
+  /** 列出落盘的结果文件，按修改时间升序 */
+  const listResultFiles = (): string[] => {
+    const outDir = join(process.cwd(), 'Docs', 'ablation');
+    if (!existsSync(outDir)) return [];
+    return readdirSync(outDir)
+      .filter(f => f.startsWith('ablation_results_') && f.endsWith('.json'))
+      // 按修改时间排序取最新。不能按文件名字典序：`ablation_results_2026-…`
+      // 会排在 `ablation_results_full_5x5.json` 前面，取到旧数据。
+      .map(f => ({ f, t: statSync(join(outDir, f)).mtimeMs }))
+      .sort((a, b) => a.t - b.t)
+      .map(x => x.f);
+  };
+
+  if (roundsReport) {
+    // 跨轮汇总：把所有历史结果文件都当成独立的一轮
+    const outDir = join(process.cwd(), 'Docs', 'ablation');
+    const files = listResultFiles();
+    if (files.length === 0) {
+      console.error(`未找到历史结果。请先跑一次实验（去掉 --rounds-report）。\n查找目录：${outDir}`);
+      process.exit(1);
+    }
+    const rounds = files.map(f => JSON.parse(readFileSync(join(outDir, f), 'utf-8')) as RunResult[]);
+    console.log(`\n📂 纳入 ${rounds.length} 轮结果：`);
+    files.forEach((f, i) => console.log(`   ${i + 1}. ${f}（${rounds[i].length} 条记录）`));
+
+    const presentArms = arms.filter(a => rounds.some(r => r.some(x => x.arm === a)));
+    const mdPath = join(outDir, 'ablation_report_rounds.md');
+    writeFileSync(mdPath, buildRoundsMarkdown(rounds, presentArms), 'utf-8');
+    console.log(`\n💾 已生成跨轮汇总：${mdPath}`);
+
+    // 控制台同步打印核心表
+    console.log('\n' + '═'.repeat(96));
+    console.log('📊 跨轮汇总');
+    console.log('═'.repeat(96));
+    console.log(`${'档位'.padEnd(20)} ${'非退化中位数（轮均±轮间标准差）'.padEnd(36)} 退化复读率`);
+    console.log('─'.repeat(96));
+    for (const arm of presentArms) {
+      const rs: { median: number; degRate: number }[] = [];
+      for (const round of rounds) {
+        const vals = round.filter(r => r.arm === arm).flatMap(r => r.adjacentSim.values);
+        if (vals.length === 0) continue;
+        const s = splitSimilarity(vals);
+        rs.push({ median: s.restMedian, degRate: s.degenerateRate });
+      }
+      if (rs.length === 0) continue;
+      const med = stats(rs.map(x => x.median));
+      const deg = stats(rs.map(x => x.degRate));
+      console.log(
+        `${ARM_LABELS[arm].padEnd(18)} ` +
+        `${(med.mean.toFixed(3) + ' ± ' + med.std.toFixed(3)).padEnd(36)} ` +
+        `${deg.mean.toFixed(2)} ± ${deg.std.toFixed(2)}`,
+      );
+    }
+    console.log('─'.repeat(96));
+    return;
+  }
 
   if (reportOnly) {
     // 复用最近一次落盘的结果，只重新生成汇总，不重新调 AI
     const outDir = join(process.cwd(), 'Docs', 'ablation');
-    const files = existsSync(outDir)
-      ? readdirSync(outDir)
-          .filter(f => f.startsWith('ablation_results_') && f.endsWith('.json'))
-          // 按修改时间排序取最新。不能按文件名字典序：`ablation_results_2026-…`
-          // 会排在 `ablation_results_full_5x5.json` 前面，取到旧数据。
-          .map(f => ({ f, t: statSync(join(outDir, f)).mtimeMs }))
-          .sort((a, b) => a.t - b.t)
-          .map(x => x.f)
-      : [];
+    const files = listResultFiles();
     if (files.length === 0) {
       console.error(`未找到历史结果。请先跑一次实验（去掉 --report-only）。\n查找目录：${outDir}`);
       process.exit(1);

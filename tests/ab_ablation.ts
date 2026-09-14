@@ -621,6 +621,267 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_rel_gzy_tubo', type: 'relationship', name: '郭子仪-吐蕃赞普', properties: { between: '郭子仪-吐蕃赞普', type: '敌对', status: '对峙' } },
     ],
   },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 以下 10 个为扩样补充（2026-09-14）。
+  //
+  // 补充的目的不是"凑够 15 个"，而是**让故事在「可推进性」上有分布**：
+  // 4 轮数据显示退化复读的触发倾向是故事级的（荆轲刺秦 100%、桃园结义 25%），
+  // 而荆轲刺秦的 opener 停在"壮士一去兮不复还"——**终局已定，模型没有可推进的
+  // 目标，只能复述上文**。若新故事全停在"待决"处，样本仍然有偏，扩样就白扩了。
+  //
+  // 因此下面刻意混了两类，并在注释里标出：
+  //   【待决】opener 停在一个尚未做出的决定上 —— 可推进
+  //   【终结】opener 停在一个已经落定的结局上 —— 容易触发复读
+  // 跑完后应能检验"复读倾向 ∝ 结局已定"这个假设（论文 §2.2 提到但未验证）。
+  // ──────────────────────────────────────────────────────────────────────
+  {
+    // 【待决】蔺相如刚拿到璧，还没见秦王
+    title: '完璧归赵',
+    description: '战国时赵惠文王得楚和氏璧，秦昭王愿以十五城易之。蔺相如奉命持璧入秦。',
+    genre: '历史',
+    opener: '战国之世，赵惠文王得楚人卞和之璧，秦昭王闻之，愿以十五城相易。赵王恐秦之诈，又惧其强，进退两难。宦者令缪贤荐其舍人蔺相如，赵王召而问之。相如曰："臣愿奉璧往使，城入赵而璧留秦；城不入，臣请完璧归赵。"赵王许之，相如遂奉璧西入咸阳。',
+    characters: [
+      { name: '蔺相如', era: '战国', role: 'protagonist', traits: ['机智', '勇敢', '有谋略'] },
+      { name: '秦昭王', era: '战国', role: 'antagonist', traits: ['强横', '贪婪', '多变'] },
+      { name: '赵惠文王', era: '战国', role: 'supporting', traits: ['谨慎', '怯懦', '纳谏'] },
+    ],
+    graphEdges: [
+      { from: '蔺相如', to: '赵惠文王', type: 'belongs_to' },
+      { from: '蔺相如', to: '秦昭王', type: 'conflicts_with' },
+      { from: '蔺相如', to: '完璧归赵', type: 'involves' },
+      { from: '咸阳', to: '秦昭王', type: 'located_at' },
+    ],
+    states: [
+      { id: 's_lxr', type: 'character', name: '蔺相如', properties: { isAlive: 'true', location: '咸阳', status: '赵国使者', mood: '沉着', faction: '赵国', goal: '完璧归赵' } },
+      { id: 's_qzw', type: 'character', name: '秦昭王', properties: { isAlive: 'true', location: '咸阳', status: '秦王', mood: '倨傲', faction: '秦国', goal: '骗取和氏璧' } },
+      { id: 's_zxw', type: 'character', name: '赵惠文王', properties: { isAlive: 'true', location: '邯郸', status: '赵王', mood: '忧惧', faction: '赵国', goal: '保全和氏璧' } },
+      { id: 's_rel_lxr_qzw', type: 'relationship', name: '蔺相如-秦昭王', properties: { between: '蔺相如-秦昭王', type: '敌对', status: '周旋' } },
+    ],
+  },
+  {
+    // 【待决】刘邦尚未赴宴
+    title: '鸿门宴',
+    description: '秦末，项羽驻军鸿门，欲击刘邦。刘邦亲赴鸿门谢罪，范增谋设宴杀之。',
+    genre: '历史',
+    opener: '秦末，沛公刘邦先入关中，项羽大怒，驻军鸿门，欲以四十万之众击之。刘邦兵仅十万，形势危殆。项羽季父项伯夜驰至刘邦军中，私见张良，欲携之俱去。张良以告刘邦，刘邦大惊，问计于张良。张良曰："请往谓项伯，言沛公不敢背项王也。"刘邦徘徊良久，终于决定明日亲赴鸿门。',
+    characters: [
+      { name: '刘邦', era: '秦末', role: 'protagonist', traits: ['隐忍', '善用人', '机变'] },
+      { name: '项羽', era: '秦末', role: 'antagonist', traits: ['勇猛', '刚愎', '优柔'] },
+      { name: '范增', era: '秦末', role: 'antagonist', traits: ['老谋深算', '果决'] },
+      { name: '樊哙', era: '秦末', role: 'supporting', traits: ['勇猛', '忠直'] },
+    ],
+    graphEdges: [
+      { from: '刘邦', to: '项羽', type: 'conflicts_with' },
+      { from: '范增', to: '项羽', type: 'belongs_to' },
+      { from: '樊哙', to: '刘邦', type: 'belongs_to' },
+      { from: '刘邦', to: '鸿门宴', type: 'involves' },
+      { from: '鸿门', to: '项羽', type: 'located_at' },
+    ],
+    states: [
+      { id: 's_lb', type: 'character', name: '刘邦', properties: { isAlive: 'true', location: '霸上', status: '沛公', mood: '不安', faction: '汉军', goal: '化解项羽之怒' } },
+      { id: 's_xy', type: 'character', name: '项羽', properties: { isAlive: 'true', location: '鸿门', status: '西楚霸王', mood: '震怒', faction: '楚军', goal: '问罪刘邦' } },
+      { id: 's_fz', type: 'character', name: '范增', properties: { isAlive: 'true', location: '鸿门', status: '亚父', mood: '决绝', faction: '楚军', goal: '除掉刘邦' } },
+      { id: 's_fk', type: 'character', name: '樊哙', properties: { isAlive: 'true', location: '霸上', status: '参乘', mood: '激愤', faction: '汉军', goal: '护卫刘邦' } },
+      { id: 's_rel_lb_xy', type: 'relationship', name: '刘邦-项羽', properties: { between: '刘邦-项羽', type: '敌对', status: '剑拔弩张' } },
+    ],
+  },
+  {
+    // 【待决】勾践刚回国，尚未起步
+    title: '卧薪尝胆',
+    description: '春秋末年，越王勾践为吴所败，忍辱事吴三年后获释归国，立志复仇。',
+    genre: '历史',
+    opener: '春秋末年，吴王夫差大败越军于夫椒，越王勾践率残兵五千退保会稽。大夫文种、范蠡献策，勾践乃卑辞厚礼以求和，亲入吴宫为奴三年。夫差病，勾践尝其溲以取信，夫差感其忠，终释之归国。勾践返越之日，见宗庙残破、田野荒芜，立于会稽山下，久久不发一言。',
+    characters: [
+      { name: '勾践', era: '春秋', role: 'protagonist', traits: ['隐忍', '坚毅', '多疑'] },
+      { name: '夫差', era: '春秋', role: 'antagonist', traits: ['骄矜', '好大喜功', '轻信'] },
+      { name: '范蠡', era: '春秋', role: 'supporting', traits: ['睿智', '通达', '知进退'] },
+      { name: '文种', era: '春秋', role: 'supporting', traits: ['忠诚', '善谋', '执着'] },
+    ],
+    graphEdges: [
+      { from: '勾践', to: '夫差', type: 'conflicts_with' },
+      { from: '范蠡', to: '勾践', type: 'belongs_to' },
+      { from: '文种', to: '勾践', type: 'belongs_to' },
+      { from: '勾践', to: '卧薪尝胆', type: 'involves' },
+      { from: '会稽', to: '勾践', type: 'located_at' },
+    ],
+    states: [
+      { id: 's_gj', type: 'character', name: '勾践', properties: { isAlive: 'true', location: '会稽', status: '越王', mood: '隐忍', faction: '越国', goal: '复仇灭吴' } },
+      { id: 's_fc', type: 'character', name: '夫差', properties: { isAlive: 'true', location: '姑苏', status: '吴王', mood: '骄矜', faction: '吴国', goal: '称霸中原' } },
+      { id: 's_fl', type: 'character', name: '范蠡', properties: { isAlive: 'true', location: '会稽', status: '上将军', mood: '沉稳', faction: '越国', goal: '辅佐勾践复国' } },
+      { id: 's_wz', type: 'character', name: '文种', properties: { isAlive: 'true', location: '会稽', status: '大夫', mood: '坚定', faction: '越国', goal: '整顿国政' } },
+      { id: 's_rel_gj_fc', type: 'relationship', name: '勾践-夫差', properties: { between: '勾践-夫差', type: '敌对', status: '臣服' } },
+    ],
+  },
+  {
+    // 【待决】刘备三顾未果，还在犹豫要不要再去
+    title: '三顾茅庐',
+    description: '东汉末年，刘备屯兵新野，三次前往隆中拜访诸葛亮，请其出山。',
+    genre: '三国',
+    opener: '东汉建安十二年，刘备屯兵新野，兵微将寡，寄人篱下。徐庶临去，荐南阳诸葛亮，称其为"卧龙"。刘备遂与关羽、张飞往隆中拜访。一顾不遇，二顾只见其弟诸葛均，冒雪而返。张飞怒曰："量一村夫，何必哥哥自去！"刘备叱之。归途中，刘备勒马回望隆中山色，沉吟不决。',
+    characters: [
+      { name: '刘备', era: '东汉末年', role: 'protagonist', traits: ['仁厚', '坚韧', '礼贤下士'] },
+      { name: '诸葛亮', era: '东汉末年', role: 'supporting', traits: ['睿智', '淡泊', '自负'] },
+      { name: '张飞', era: '东汉末年', role: 'supporting', traits: ['勇猛', '急躁', '忠诚'] },
+      { name: '关羽', era: '东汉末年', role: 'supporting', traits: ['忠义', '沉稳', '高傲'] },
+    ],
+    graphEdges: [
+      { from: '刘备', to: '诸葛亮', type: 'involves' },
+      { from: '张飞', to: '刘备', type: 'belongs_to' },
+      { from: '关羽', to: '刘备', type: 'belongs_to' },
+      { from: '隆中', to: '诸葛亮', type: 'located_at' },
+    ],
+    states: [
+      { id: 's_liubei', type: 'character', name: '刘备', properties: { isAlive: 'true', location: '新野', status: '左将军', mood: '求贤若渴', faction: '刘备军', goal: '请诸葛亮出山' } },
+      { id: 's_zgl', type: 'character', name: '诸葛亮', properties: { isAlive: 'true', location: '隆中', status: '布衣', mood: '淡泊', faction: '无', goal: '待明主' } },
+      { id: 's_zhangfei', type: 'character', name: '张飞', properties: { isAlive: 'true', location: '新野', status: '车骑将军', mood: '焦躁', faction: '刘备军', goal: '随兄长征战' } },
+      { id: 's_guanyu', type: 'character', name: '关羽', properties: { isAlive: 'true', location: '新野', status: '偏将军', mood: '沉稳', faction: '刘备军', goal: '辅佐刘备' } },
+      { id: 's_rel_lb_zgl', type: 'relationship', name: '刘备-诸葛亮', properties: { between: '刘备-诸葛亮', type: '君臣未定', status: '未遇' } },
+    ],
+  },
+  {
+    // 【待决】廉颇刚放话，冲突尚未发生
+    title: '负荆请罪',
+    description: '战国时赵国蔺相如因完璧归赵拜为上卿，位在廉颇之上，廉颇不服。',
+    genre: '历史',
+    opener: '战国时，蔺相如以完璧归赵、渑池之会两度折秦，赵王拜为上卿，位在大将廉颇之上。廉颇曰："我为赵将，有攻城野战之大功，而蔺相如徒以口舌为劳，而位居我上，吾羞，不忍为之下。"宣言曰："我见相如，必辱之。"相如闻之，每朝称病，不欲与廉颇争列。一日，相如出，望见廉颇，引车避匿。舍人皆以为耻。',
+    characters: [
+      { name: '蔺相如', era: '战国', role: 'protagonist', traits: ['宽厚', '识大体', '隐忍'] },
+      { name: '廉颇', era: '战国', role: 'antagonist', traits: ['勇猛', '自负', '率直'] },
+      { name: '赵惠文王', era: '战国', role: 'supporting', traits: ['纳谏', '优柔'] },
+    ],
+    graphEdges: [
+      { from: '蔺相如', to: '廉颇', type: 'conflicts_with' },
+      { from: '蔺相如', to: '赵惠文王', type: 'belongs_to' },
+      { from: '廉颇', to: '赵惠文王', type: 'belongs_to' },
+      { from: '蔺相如', to: '负荆请罪', type: 'involves' },
+    ],
+    states: [
+      { id: 's_lxr2', type: 'character', name: '蔺相如', properties: { isAlive: 'true', location: '邯郸', status: '上卿', mood: '隐忍', faction: '赵国', goal: '避免将相失和' } },
+      { id: 's_lp', type: 'character', name: '廉颇', properties: { isAlive: 'true', location: '邯郸', status: '大将军', mood: '愤懑', faction: '赵国', goal: '羞辱蔺相如' } },
+      { id: 's_rel_lxr_lp', type: 'relationship', name: '蔺相如-廉颇', properties: { between: '蔺相如-廉颇', type: '同朝', status: '失和' } },
+    ],
+  },
+  {
+    // 【待决】项羽刚夺军权，尚未渡河
+    title: '破釜沉舟',
+    description: '秦末巨鹿之战，项羽杀宋义夺军权，率楚军渡河救赵，大破秦军。',
+    genre: '历史',
+    opener: '秦末，秦将章邯围赵王歇于巨鹿，楚怀王遣宋义为上将军、项羽为次将，率军救赵。宋义行至安阳，留四十六日不进，欲坐观秦赵相斗。时天寒大雨，士卒冻饥。项羽曰："今岁饥民贫，士卒食芋菽，军无见粮，而饮酒高会，不引兵渡河，非社稷之臣也。"晨朝，项羽即帐中斩宋义头，出令军中曰："宋义与齐谋反楚，楚王阴令籍诛之。"诸将皆慑服，莫敢枝梧。',
+    characters: [
+      { name: '项羽', era: '秦末', role: 'protagonist', traits: ['勇猛', '果决', '暴烈'] },
+      { name: '宋义', era: '秦末', role: 'antagonist', traits: ['怯懦', '自私', '短视'] },
+      { name: '章邯', era: '秦末', role: 'antagonist', traits: ['善战', '沉稳', '务实'] },
+    ],
+    graphEdges: [
+      { from: '项羽', to: '宋义', type: 'conflicts_with' },
+      { from: '项羽', to: '章邯', type: 'conflicts_with' },
+      { from: '项羽', to: '破釜沉舟', type: 'involves' },
+      { from: '巨鹿', to: '章邯', type: 'located_at' },
+    ],
+    states: [
+      { id: 's_xiangyu', type: 'character', name: '项羽', properties: { isAlive: 'true', location: '安阳', status: '次将', mood: '激愤', faction: '楚军', goal: '渡河救赵' } },
+      { id: 's_songyi', type: 'character', name: '宋义', properties: { isAlive: 'false', location: '安阳', status: '已诛', mood: '—', faction: '楚军', goal: '—' } },
+      { id: 's_zhanghan', type: 'character', name: '章邯', properties: { isAlive: 'true', location: '巨鹿', status: '秦将', mood: '自信', faction: '秦军', goal: '灭赵' } },
+      { id: 's_julu', type: 'location', name: '巨鹿', properties: { status: '被秦军围困', controller: '章邯' } },
+    ],
+  },
+  {
+    // 【终结】苏武已被流放北海 —— 结局已定，对照荆轲刺秦那类
+    title: '苏武牧羊',
+    description: '西汉天汉元年，苏武出使匈奴被扣，持节不屈，被流放北海牧羊十九年。',
+    genre: '历史',
+    opener: '西汉天汉元年，中郎将苏武奉命持节出使匈奴，因副使张胜牵涉谋反，被单于扣留。单于使卫律劝降，许以高官厚禄。苏武曰："屈节辱命，虽生，何面目以归汉！"引佩刀自刺，气绝半日乃苏。卫律知苏武终不可胁，白单于。单于愈益欲降之，乃幽武置大窖中，绝不饮食。天雨雪，武卧啮雪与旃毛并咽之，数日不死。匈奴以为神，乃徙武北海上无人处，使牧羝，羝乳乃得归。',
+    characters: [
+      { name: '苏武', era: '西汉', role: 'protagonist', traits: ['忠贞', '坚毅', '不屈'] },
+      { name: '匈奴单于', era: '西汉', role: 'antagonist', traits: ['强横', '狡诈', '敬重气节'] },
+      { name: '卫律', era: '西汉', role: 'antagonist', traits: ['反复', '谄媚', '狠毒'] },
+    ],
+    graphEdges: [
+      { from: '苏武', to: '匈奴单于', type: 'conflicts_with' },
+      { from: '卫律', to: '匈奴单于', type: 'belongs_to' },
+      { from: '苏武', to: '苏武牧羊', type: 'involves' },
+      { from: '北海', to: '苏武', type: 'located_at' },
+    ],
+    states: [
+      { id: 's_sw', type: 'character', name: '苏武', properties: { isAlive: 'true', location: '北海', status: '牧羊', mood: '坚贞', faction: '汉朝', goal: '持节归汉' } },
+      { id: 's_chanyu', type: 'character', name: '匈奴单于', properties: { isAlive: 'true', location: '匈奴王庭', status: '单于', mood: '恼怒', faction: '匈奴', goal: '逼降苏武' } },
+      { id: 's_weilv', type: 'character', name: '卫律', properties: { isAlive: 'true', location: '匈奴王庭', status: '降将', mood: '阴狠', faction: '匈奴', goal: '劝降苏武' } },
+      { id: 's_beihai', type: 'location', name: '北海', properties: { status: '荒无人烟', controller: '无' } },
+    ],
+  },
+  {
+    // 【终结】岳飞已奉诏班师 —— 结局已定
+    title: '岳飞班师',
+    description: '南宋绍兴十年，岳飞大破金军于郾城，正欲北进，高宗、秦桧连发金牌促其班师。',
+    genre: '历史',
+    opener: '南宋绍兴十年，岳飞大破金兀术于郾城，前锋直抵朱仙镇，金人震恐，河北豪杰并起响应。岳飞大喜，谓部下曰："直抵黄龙府，与诸君痛饮耳！"方欲渡河，而高宗、秦桧主和，一日之内连发十二道金牌，促其班师。岳飞扼腕泣下，东向再拜曰："十年之力，废于一旦！"遂班师南归，河南州县复陷于金。',
+    characters: [
+      { name: '岳飞', era: '南宋', role: 'protagonist', traits: ['忠勇', '刚直', '执着'] },
+      { name: '秦桧', era: '南宋', role: 'antagonist', traits: ['奸诈', '阴狠', '善媚'] },
+      { name: '赵构', era: '南宋', role: 'antagonist', traits: ['多疑', '怯懦', '自私'] },
+      { name: '金兀术', era: '金', role: 'antagonist', traits: ['骁勇', '善战', '坚韧'] },
+    ],
+    graphEdges: [
+      { from: '岳飞', to: '金兀术', type: 'conflicts_with' },
+      { from: '秦桧', to: '赵构', type: 'belongs_to' },
+      { from: '岳飞', to: '赵构', type: 'belongs_to' },
+      { from: '岳飞', to: '班师', type: 'involves' },
+    ],
+    states: [
+      { id: 's_yf', type: 'character', name: '岳飞', properties: { isAlive: 'true', location: '朱仙镇', status: '枢密副使', mood: '悲愤', faction: '南宋', goal: '直捣黄龙' } },
+      { id: 's_qh', type: 'character', name: '秦桧', properties: { isAlive: 'true', location: '临安', status: '宰相', mood: '阴狠', faction: '南宋', goal: '促成和议' } },
+      { id: 's_zg', type: 'character', name: '赵构', properties: { isAlive: 'true', location: '临安', status: '宋高宗', mood: '疑惧', faction: '南宋', goal: '偏安江南' } },
+      { id: 's_jwz', type: 'character', name: '金兀术', properties: { isAlive: 'true', location: '开封', status: '金军统帅', mood: '惊惧', faction: '金国', goal: '稳固河南' } },
+    ],
+  },
+  {
+    // 【待决】商鞅刚立木，还没人搬
+    title: '商鞅立木',
+    description: '战国时商鞅在秦孝公支持下变法，为取信于民，立木于都城南门，悬赏徙之。',
+    genre: '历史',
+    opener: '战国时，卫人公孙鞅入秦，说秦孝公以变法强国之术，孝公大悦，任之为左庶长。新法未行，恐民不信。鞅乃立三丈之木于国都栎阳南门，下令曰："有能徙置北门者，予十金。"民怪之，莫敢徙。鞅复曰："能徙者予五十金。"百姓聚观，窃窃私议，终无一人应者。',
+    characters: [
+      { name: '商鞅', era: '战国', role: 'protagonist', traits: ['果决', '严酷', '务实'] },
+      { name: '秦孝公', era: '战国', role: 'supporting', traits: ['雄才', '果断', '纳谏'] },
+      { name: '甘龙', era: '战国', role: 'antagonist', traits: ['守旧', '固执', '多谋'] },
+    ],
+    graphEdges: [
+      { from: '商鞅', to: '秦孝公', type: 'belongs_to' },
+      { from: '商鞅', to: '甘龙', type: 'conflicts_with' },
+      { from: '商鞅', to: '立木取信', type: 'involves' },
+      { from: '栎阳', to: '秦孝公', type: 'located_at' },
+    ],
+    states: [
+      { id: 's_sy', type: 'character', name: '商鞅', properties: { isAlive: 'true', location: '栎阳', status: '左庶长', mood: '果决', faction: '秦国', goal: '推行新法' } },
+      { id: 's_qxg', type: 'character', name: '秦孝公', properties: { isAlive: 'true', location: '栎阳', status: '秦公', mood: '期待', faction: '秦国', goal: '富国强兵' } },
+      { id: 's_gl', type: 'character', name: '甘龙', properties: { isAlive: 'true', location: '栎阳', status: '大夫', mood: '不满', faction: '秦国旧族', goal: '阻挠变法' } },
+    ],
+  },
+  {
+    // 【终结】淝水之战已打完 —— 结局已定
+    title: '淝水之战',
+    description: '东晋太元八年，前秦苻坚率大军南下，谢玄以八万北府兵大破之于淝水。',
+    genre: '历史',
+    opener: '东晋太元八年，前秦苻坚倾国南侵，众号百万，投鞭断流。晋廷震恐，以谢石为都督、谢玄为前锋，率北府兵八万拒之。玄遣使谓苻坚曰："君悬军深入，而置阵逼水，此持久之计，非欲速战也。若移阵少却，使晋兵得渡，以决胜负，不亦善乎？"苻坚许之，麾兵使退。秦兵一退，不可复止。朱序在阵后呼曰："秦兵败矣！"众遂大奔，自相蹈藉，投水死者不可胜计，淝水为之不流。苻坚中流矢，单骑走还淮北。',
+    characters: [
+      { name: '谢玄', era: '东晋', role: 'protagonist', traits: ['果决', '善战', '沉稳'] },
+      { name: '苻坚', era: '前秦', role: 'antagonist', traits: ['宽仁', '自负', '轻敌'] },
+      { name: '谢安', era: '东晋', role: 'supporting', traits: ['从容', '深沉', '雅量'] },
+    ],
+    graphEdges: [
+      { from: '谢玄', to: '苻坚', type: 'conflicts_with' },
+      { from: '谢玄', to: '谢安', type: 'belongs_to' },
+      { from: '谢玄', to: '淝水之战', type: 'involves' },
+      { from: '淝水', to: '谢玄', type: 'located_at' },
+    ],
+    states: [
+      { id: 's_xx', type: 'character', name: '谢玄', properties: { isAlive: 'true', location: '淝水', status: '前锋都督', mood: '沉着', faction: '东晋', goal: '击退秦军' } },
+      { id: 's_pj', type: 'character', name: '苻坚', properties: { isAlive: 'true', location: '淮北', status: '前秦天王', mood: '溃败', faction: '前秦', goal: '收拢败兵' } },
+      { id: 's_xa', type: 'character', name: '谢安', properties: { isAlive: 'true', location: '建康', status: '宰相', mood: '从容', faction: '东晋', goal: '稳定朝局' } },
+      { id: 's_feishui', type: 'location', name: '淝水', properties: { status: '战场', controller: '东晋' } },
+    ],
+  },
 ];
 
 // ============================================================================
@@ -633,20 +894,23 @@ const ALL_STORY_DEFS: StoryDef[] = [
  * 旧实现按边的类型猜节点类型，而且**只猜 from 端、to 端一律当角色**。
  * 于是"洛阳 →敌对→ 董卓"把地点洛阳、"郭子仪 →参与→ 单骑退敌"把事件
  * 单骑退敌都登记成了角色，注入 Prompt 时它们会出现在「角色」那一行里，
- * 成为图谱噪声的一部分。改成两端都按名单+边类型推断。
+ * 成为图谱噪声的一部分。改成两端都按类型推断。
  *
- * 名单显式列在这里而不是靠猜，是因为这些是实验夹具（fixture）的一部分，
- * 新增故事时如果用到新的地点/事件，一并补进来即可。
+ * 类型来源**从故事定义自己派生**，而不是硬编码名单：每个 StoryDef 的 `states` 里
+ * 已经有 type='location' / 'event' 的对象，直接用它们建索引即可。
+ *
+ * （早先是一份手写常量表，扩样加了 10 个故事后，"咸阳""巨鹿""淝水"这些新地点
+ * 全部落到兜底分支被当成角色——正是这个函数当初要修的毛病又长回来了。
+ * 派生比枚举可靠：新增故事再也不用记得回来改这里。）
  */
-const SEED_LOCATIONS = new Set(['洛阳', '长安', '咸阳', '赤壁']);
-const SEED_EVENTS = new Set(['桃园结义', '出使西域', '刺秦', '火攻', '单骑退敌']);
-
-function inferSeedNodeType(name: string, charNames: Set<string>): NodeType {
+function inferSeedNodeType(
+  name: string, charNames: Set<string>, locNames: Set<string>, evtNames: Set<string>,
+): NodeType {
   if (charNames.has(name)) return 'character';
-  if (SEED_LOCATIONS.has(name)) return 'location';
-  if (SEED_EVENTS.has(name)) return 'event';
-  // 兜底当角色，并留痕，避免新故事里的实体被静默归错类
-  console.warn(`[ab_ablation] 种子实体「${name}」不在角色/地点/事件名单内，按角色处理`);
+  if (locNames.has(name)) return 'location';
+  if (evtNames.has(name)) return 'event';
+  // 兜底当角色，并留痕，避免故事里的实体被静默归错类
+  console.warn(`[ab_ablation] 种子实体「${name}」未在故事定义的 characters/location/event 中出现，按角色处理`);
   return 'character';
 }
 
@@ -715,12 +979,15 @@ async function setupStory(def: StoryDef, tag: string, arm: Arm): Promise<{ story
   // 图谱 + 状态表：无论哪档都先种好数据，档位只控制「是否注入 Prompt」
   // —— 这样各档的初始条件完全一致，差异只来自注入与否，实验才干净。
   const seedCharNames = new Set(def.characters.map(c => c.name));
+  // 地点/事件名单从故事定义自己派生（见 inferSeedNodeType 的注释）
+  const seedLocNames = new Set(def.states.filter(s => s.type === 'location').map(s => s.name as string));
+  const seedEvtNames = new Set(def.states.filter(s => s.type === 'event').map(s => s.name as string));
   for (const e of def.graphEdges) {
     const n1 = await knowledgeGraph.getOrCreateNode({
-      type: inferSeedNodeType(e.from, seedCharNames), name: e.from, branchId,
+      type: inferSeedNodeType(e.from, seedCharNames, seedLocNames, seedEvtNames), name: e.from, branchId,
     });
     const n2 = await knowledgeGraph.getOrCreateNode({
-      type: inferSeedNodeType(e.to, seedCharNames), name: e.to, branchId,
+      type: inferSeedNodeType(e.to, seedCharNames, seedLocNames, seedEvtNames), name: e.to, branchId,
     });
     await knowledgeGraph.addEdge({ source: n1.id, target: n2.id, type: e.type, branchId, segmentId: 'seed' });
   }
@@ -1145,6 +1412,11 @@ function printSummary(results: RunResult[], arms: Arm[]) {
   console.log('      判断档位优劣看「退化复读率」与「非退化中位数」；见报告 §三-1。');
 }
 
-main()
-  .catch((e) => { console.error('失败:', e); process.exit(1); })
-  .finally(async () => { await prisma.$disconnect(); });
+// 只在「直接运行本文件」时才跑实验。被其它脚本 import 复用纯函数
+// （splitSimilarity / pairedTTest 等）时绝不能跑——否则 import 一次就是几百次 AI 调用。
+const isDirectRun = (process.argv[1] ?? '').replace(/\\/g, '/').endsWith('tests/ab_ablation.ts');
+if (isDirectRun) {
+  main()
+    .catch((e) => { console.error('失败:', e); process.exit(1); })
+    .finally(async () => { await prisma.$disconnect(); });
+}

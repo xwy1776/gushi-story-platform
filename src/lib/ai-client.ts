@@ -337,6 +337,9 @@ export function getDefaultModelConfig(): AIModelConfig {
 /**
  * 生成完整的 OpenAI API 请求数据
  * @param enableWebSearch 让 GLM 模型启用内置 web_search 工具联网
+ * @param temperature 覆盖按题材推断的采样温度。用途：把「判定类」调用（如 LLM-as-Judge）
+ *                    锁成 0，让同一输入的判定可复现 —— 度量工具本身不能是随机的。
+ *                    不传则沿用 getGenerationParams 的题材规则。
  */
 export function buildOpenAIRequest(
   prompt: string,
@@ -344,6 +347,7 @@ export function buildOpenAIRequest(
   maxTokens?: number,
   story?: Story,
   enableWebSearch?: boolean,
+  temperature?: number,
 ) {
   const config = getDefaultModelConfig();
   const params = story ? getGenerationParams(story) : getGenerationParams({} as Story);
@@ -356,7 +360,7 @@ export function buildOpenAIRequest(
   const requestBody: Record<string, unknown> = {
     model: config.model,
     messages,
-    temperature: params.temperature,
+    temperature: temperature ?? params.temperature,
     top_p: params.top_p,
     frequency_penalty: params.frequency_penalty,
     max_tokens: maxTokens || params.max_tokens
@@ -401,12 +405,14 @@ export async function callAI(prompt: string, options: {
   stream?: boolean;
   priority?: RequestPriority;
   webSearch?: boolean;
+  /** 覆盖题材温度推断（见 buildOpenAIRequest）。判定类调用传 0 以保证可复现。 */
+  temperature?: number;
 } = {}): Promise<Response> {
-  const { priority = 'high', systemPrompt, maxTokens, story, webSearch } = options;
+  const { priority = 'high', systemPrompt, maxTokens, story, webSearch, temperature } = options;
 
   return aiRequestQueue.enqueue(
     () => callAIWithRetry(() => {
-      const request = buildOpenAIRequest(prompt, systemPrompt, maxTokens, story, webSearch);
+      const request = buildOpenAIRequest(prompt, systemPrompt, maxTokens, story, webSearch, temperature);
       return fetch(request.url, {
         method: 'POST',
         headers: request.headers,
@@ -429,6 +435,8 @@ export async function callAIText(prompt: string, options: {
   story?: Story;
   priority?: RequestPriority;
   webSearch?: boolean;
+  /** 覆盖题材温度推断。判定类调用传 0 以保证可复现。 */
+  temperature?: number;
 } = {}): Promise<string> {
   const response = await callAI(prompt, options);
   const data = await response.json();

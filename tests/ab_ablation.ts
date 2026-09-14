@@ -237,7 +237,7 @@ function buildRoundsMarkdown(rounds: RunResult[][], arms: Arm[], files: string[]
     lines.push('（故事数不足，无法配对检验）');
   }
   lines.push('');
-  lines.push('> ⚠️ 配对单位是**故事**（n=5），轮次只用来降噪，不增加样本量。');
+  lines.push(`> ⚠️ 配对单位是**故事**（当前 n=${storyTitles.length}），轮次只用来降噪，不增加样本量。`);
   lines.push('> 要提升统计效力必须**增加故事数**，不是增加轮数。');
   lines.push('');
 
@@ -248,6 +248,8 @@ function buildRoundsMarkdown(rounds: RunResult[][], arms: Arm[], files: string[]
   lines.push('');
   lines.push(`| 行 vs 列 | ${arms.map(a => `\`${a}\``).join(' | ')} |`);
   lines.push(`|------|${arms.map(() => '------:').join('|')}|`);
+  // 顺带统计本表有几格达到显著 —— 注释里写死临界值会让表格和结论自相矛盾
+  let nSig = 0, maxAbsT = 0, critUsed = Infinity; let dfUsed = 0;
   for (const ra of arms) {
     const sa = occSeries(ra);
     if (sa.length < 2) continue;
@@ -256,14 +258,22 @@ function buildRoundsMarkdown(rounds: RunResult[][], arms: Arm[], files: string[]
       const sc = occSeries(ca);
       if (sc.length < 2) return '—';
       const t = pairedTTest(sc, sa);
+      dfUsed = t.df; critUsed = t.critical;
+      if (t.significant) nSig++;
+      if (Math.abs(t.t) > maxAbsT) maxAbsT = Math.abs(t.t);
       const d = stats(sa).mean - stats(sc).mean;
       return `${d >= 0 ? '+' : ''}${(d * 100).toFixed(0)}pp (t=${t.t.toFixed(2)})`;
     });
     lines.push(`| \`${ra}\` | ${cells.join(' | ')} |`);
   }
   lines.push('');
-  lines.push('> `pp` = 百分点。df=4 的双尾临界值是 2.776，本表所有 |t| 都低于它，');
-  lines.push('> 即**两两差异均未达显著**；但方向是否一致，看下一节。');
+  lines.push(`> \`pp\` = 百分点。配对单位是故事，df=${dfUsed} 的双尾临界值是 **${critUsed.toFixed(3)}**。`);
+  if (nSig === 0) {
+    lines.push(`> 本表最大 |t| = ${maxAbsT.toFixed(2)}，**两两差异均未达显著**；但方向是否一致，看下一节。`);
+  } else {
+    // 每对档位在表里出现两次（行列各一次），|t| 相同，所以除以 2
+    lines.push(`> 本表最大 |t| = ${maxAbsT.toFixed(2)}，**有 ${nSig / 2} 对档位达到显著**（含正负两向）。`);
+  }
   lines.push('');
 
   // ── 逐故事支配关系：both 是否在任何故事上都劣于 state ──
@@ -452,27 +462,59 @@ export function stats(values: number[]): {
 }
 
 /**
+/**
+ * 双尾 p<0.05 的 t 临界值，按自由度查表（中间自由度线性插值）。
+ *
+ * 早先是一个三元表达式 `n===5 ? 2.776 : n===4 ? 3.182 : 2.0` ——
+ * **n>5 一律返回 2.0，是错的**。扩样到 15 个故事（df=14，真值 2.145）时，
+ * 它会给出过于宽松的判据，把 t=2.05 这种本该不显著的判成显著。
+ * 同时报告的注释里还写死了"df=4 临界值 2.776"，于是出现**表格判显著、
+ * 注释说不显著**的自相矛盾。判据这种东西必须按自由度算，不能写死。
+ */
+const T_CRITICAL_05: Array<[number, number]> = [
+  [1, 12.706], [2, 4.303], [3, 3.182], [4, 2.776], [5, 2.571],
+  [6, 2.447], [7, 2.365], [8, 2.306], [9, 2.262], [10, 2.228],
+  [11, 2.201], [12, 2.179], [13, 2.160], [14, 2.145], [15, 2.131],
+  [16, 2.120], [17, 2.110], [18, 2.101], [19, 2.093], [20, 2.086],
+  [22, 2.074], [24, 2.064], [26, 2.056], [28, 2.048], [30, 2.042],
+  [40, 2.021], [50, 2.009], [60, 2.000], [80, 1.990], [100, 1.984],
+  [1e9, 1.960],
+];
+
+export function tCritical05(df: number): number {
+  if (df <= 0) return Infinity;
+  for (let i = 0; i < T_CRITICAL_05.length; i++) {
+    const [d, v] = T_CRITICAL_05[i];
+    if (df === d) return v;
+    if (df < d) {
+      const [d0, v0] = T_CRITICAL_05[i - 1];
+      return v0 + (v - v0) * ((df - d0) / (d - d0));  // 线性插值
+    }
+  }
+  return 1.960;
+}
+
+/**
  * 配对样本 t 检验（对比某档位与基线）。
- * 样本量小时（n=5）只作参考，正式投稿需扩样本。
- * 返回 t 值与近似双尾 p 值的粗估。
+ * 显著性按自由度查表判定（见 tCritical05）。样本量小时结论只作参考。
  */
 export function pairedTTest(baseline: number[], treatment: number[]): {
-  t: number; df: number; significant: boolean;
+  t: number; df: number; critical: number; significant: boolean;
 } {
   const n = Math.min(baseline.length, treatment.length);
-  if (n < 2) return { t: 0, df: 0, significant: false };
+  if (n < 2) return { t: 0, df: 0, critical: Infinity, significant: false };
 
   const diffs = Array.from({ length: n }, (_, i) => treatment[i] - baseline[i]);
   const dMean = diffs.reduce((s, v) => s + v, 0) / n;
   const dStd = Math.sqrt(
     diffs.reduce((s, v) => s + (v - dMean) ** 2, 0) / (n - 1),
   );
-  if (dStd === 0) return { t: 0, df: n - 1, significant: false };
+  const df = n - 1;
+  const critical = tCritical05(df);
+  if (dStd === 0) return { t: 0, df, critical, significant: false };
 
   const t = dMean / (dStd / Math.sqrt(n));
-  // 小样本下用 |t| > 2.776 (df=4, p<0.05) 作粗略判据
-  const critical = n === 5 ? 2.776 : n === 4 ? 3.182 : 2.0;
-  return { t, df: n - 1, significant: Math.abs(t) > critical };
+  return { t, df, critical, significant: Math.abs(t) > critical };
 }
 
 // ============================================================================

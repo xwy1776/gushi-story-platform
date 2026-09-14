@@ -658,14 +658,35 @@ function parseArgs() {
     stories: parseInt(get('stories', String(FORKS.length)), 10),
     segments: parseInt(get('segments', '5'), 10),
     arms: get('arms', 'isolated,shared').split(',').map(s => s.trim()).filter(Boolean) as Isolation[],
+    reportOnly: argv.includes('--report-only'),
   };
 }
 
 async function main() {
-  const { rounds, stories, segments, arms } = parseArgs();
+  const { rounds, stories, segments, arms, reportOnly } = parseArgs();
   const defs = FORKS.slice(0, stories);
   const outDir = join(process.cwd(), 'Docs', 'ablation');
   mkdirSync(outDir, { recursive: true });
+
+  if (reportOnly) {
+    // 用已落盘的结果重建报告，不重新生成（省 API 额度，也便于剔除残缺轮次）
+    const files = readdirSync(outDir)
+      .filter(f => f.startsWith('branch_isolation_') && f.endsWith('.json'))
+      .map(f => ({ f, t: statSync(join(outDir, f)).mtimeMs }))
+      .sort((a, b) => a.t - b.t)
+      .map(x => x.f);
+    if (files.length === 0) {
+      console.error(`未找到历史结果。请先跑一次实验（去掉 --report-only）。\n查找目录：${outDir}`);
+      process.exit(1);
+    }
+    const loaded = files.map(f => JSON.parse(readFileSync(join(outDir, f), 'utf-8')) as RunResult[]);
+    console.log(`\n📂 纳入 ${loaded.length} 轮：`);
+    files.forEach((f, i) => console.log(`   ${i + 1}. ${f}（${loaded[i].length} 条）`));
+    const mdPath = join(outDir, 'branch_isolation_report.md');
+    writeFileSync(mdPath, buildMarkdown(loaded, files), 'utf-8');
+    console.log(`\n📄 已重建：${mdPath}`);
+    return;
+  }
 
   const est = rounds * defs.length * arms.length * segments;
   console.log(`\n🧪 跨分支污染实验：${defs.length} 组冲突分支 × ${arms.length} 档 × ${segments} 段 × ${rounds} 轮`);

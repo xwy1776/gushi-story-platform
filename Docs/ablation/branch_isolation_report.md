@@ -4,9 +4,9 @@
 > 只在**分支甲**上续写；「污染」指正文引用了**分支乙**独有的事件或状态。
 >
 > 纳入文件：
-> - `branch_isolation_2026-09-14T08-21-55.json`
-> - `branch_isolation_2026-09-14T08-32-13.json`
-> - `branch_isolation_2026-09-14T09-15-13.json`
+> - `branch_isolation_n5_2026-09-14T08-21-55.json`
+> - `branch_isolation_n5_2026-09-14T08-32-13.json`
+> - `branch_isolation_n5_2026-09-14T09-15-13.json`
 
 ## 一、主结果：跨分支污染率与「净泄漏增量」
 

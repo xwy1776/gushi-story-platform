@@ -44,7 +44,7 @@
  * 结果输出到 Docs/ablation/branch_isolation_*.json 与 .md
  */
 import './test-env';
-import { mkdirSync, writeFileSync, readdirSync, readFileSync, statSync } from 'fs';
+import { mkdirSync, writeFileSync, readdirSync, readFileSync, statSync, renameSync } from 'fs';
 import { join } from 'path';
 import prisma from '../src/lib/prisma';
 import { buildFullPrompt } from '../src/lib/prompt-builder';
@@ -849,6 +849,10 @@ function parseArgs() {
     segments: parseInt(get('segments', '5'), 10),
     arms: get('arms', 'isolated,shared').split(',').map(s => s.trim()).filter(Boolean) as Isolation[],
     reportOnly: argv.includes('--report-only'),
+    // 只纳入文件名含指定子串的结果文件（逗号分隔）。
+    // 用途：5 组和 12 组是两批不同的数据，混在一个汇总里平均是错的。
+    only: get('only', '').split(',').map(s => s.trim()).filter(Boolean),
+    outName: get('out', 'branch_isolation_report.md'),
   };
 }
 
@@ -880,7 +884,7 @@ function validateForks(defs: ForkDef[]): string[] {
 }
 
 async function main() {
-  const { rounds, stories, segments, arms, reportOnly } = parseArgs();
+  const { rounds, stories, segments, arms, reportOnly, only, outName } = parseArgs();
   const defs = FORKS.slice(0, stories);
   const outDir = join(process.cwd(), 'Docs', 'ablation');
   mkdirSync(outDir, { recursive: true });
@@ -897,19 +901,27 @@ async function main() {
 
   if (reportOnly) {
     // 用已落盘的结果重建报告，不重新生成（省 API 额度，也便于剔除残缺轮次）
-    const files = readdirSync(outDir)
+    const allFiles = readdirSync(outDir)
       .filter(f => f.startsWith('branch_isolation_') && f.endsWith('.json'))
       .map(f => ({ f, t: statSync(join(outDir, f)).mtimeMs }))
       .sort((a, b) => a.t - b.t)
       .map(x => x.f);
-    if (files.length === 0) {
+    if (allFiles.length === 0) {
       console.error(`未找到历史结果。请先跑一次实验（去掉 --report-only）。\n查找目录：${outDir}`);
       process.exit(1);
+    }
+    const files = only.length === 0 ? allFiles : allFiles.filter(f => only.some(o => f.includes(o)));
+    if (files.length === 0) {
+      console.error(`--only=${only.join(',')} 没匹配到任何文件。可选：\n` + allFiles.map(f => `  ${f}`).join('\n'));
+      process.exit(1);
+    }
+    if (only.length > 0) {
+      console.log(`\n🔎 只纳入匹配 --only=${only.join(',')} 的 ${files.length} 个文件（共 ${allFiles.length} 个）`);
     }
     const loaded = files.map(f => JSON.parse(readFileSync(join(outDir, f), 'utf-8')) as RunResult[]);
     console.log(`\n📂 纳入 ${loaded.length} 轮：`);
     files.forEach((f, i) => console.log(`   ${i + 1}. ${f}（${loaded[i].length} 条）`));
-    const mdPath = join(outDir, 'branch_isolation_report.md');
+    const mdPath = join(outDir, outName);
     writeFileSync(mdPath, buildMarkdown(loaded, files), 'utf-8');
     console.log(`\n📄 已重建：${mdPath}`);
     return;
@@ -923,6 +935,18 @@ async function main() {
   for (let r = 1; r <= rounds; r++) {
     console.log(`\n${'═'.repeat(70)}\n第 ${r}/${rounds} 轮\n${'═'.repeat(70)}`);
     const round: RunResult[] = [];
+
+    // 本轮的文件名**在开跑前就定好**，然后每完成一个「分叉×档位」就重写一次。
+    // 原因：一整轮 12 组 × 2 档 × 5 段要二十分钟以上，只在轮末落盘的话，
+    // 中途任何中断（会话结束、进程被杀）都会让这一轮全部白跑 —— 已经发生过一次。
+    //
+    // 写入期间用 `.json.wip` 后缀，整轮跑完才 rename 成 `.json`：
+    // 汇总只认 `.json` 结尾，所以**半截的轮次永远不会被误当成完整轮**读进去。
+    // （这是被"残留子进程写出只有 5/15 个故事的文件"那次教训逼出来的。）
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const jsonPath = join(outDir, `branch_isolation_n${defs.length}_${stamp}.json`);
+    const wipPath = `${jsonPath}.wip`;
+    const flush = () => writeFileSync(wipPath, JSON.stringify(round, null, 2), 'utf-8');
 
     for (const def of defs) {
       for (const isolation of arms) {
@@ -945,31 +969,41 @@ async function main() {
 
           const res = await runFork(def, isolation, storyId, branchId, story, segments);
           round.push(res);
+          flush();   // 增量落盘：这一步之后即使被打断，已完成的部分也保得住
           console.log(`  → 关键词污染率 ${(res.keywordContaminationRate * 100).toFixed(0)}%，`
-            + `Judge 污染率 ${(res.judgeContaminationRate * 100).toFixed(0)}%，一致率 ${(res.agreement * 100).toFixed(0)}%`);
+            + `Judge 污染率 ${(res.judgeContaminationRate * 100).toFixed(0)}%，一致率 ${(res.agreement * 100).toFixed(0)}%`
+            + `　[本轮 ${round.length}/${defs.length * arms.length} 已落盘]`);
         } catch (e) {
           console.error(`  ✗ ${def.story} ／ ${ARM_LABELS[isolation]} 失败，跳过本轮该组合：${(e as Error).message}`);
         }
       }
     }
     allRounds.push(round);
+    flush();
 
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const jsonPath = join(outDir, `branch_isolation_${stamp}.json`);
-    writeFileSync(jsonPath, JSON.stringify(round, null, 2), 'utf-8');
-    console.log(`\n💾 第 ${r} 轮已落盘：${jsonPath}`);
+    const complete = round.length === defs.length * arms.length;
+    if (complete) {
+      // 整轮跑完才去掉 .wip —— 汇总只读 .json，半截轮进不去
+      renameSync(wipPath, jsonPath);
+      console.log(`\n💾 第 ${r} 轮已完整落盘：${jsonPath}`);
+    } else {
+      console.warn(`\n⚠️ 第 ${r} 轮只完成 ${round.length}/${defs.length * arms.length} 个组合，`
+        + `保留为 ${wipPath}\n   不会被汇总纳入（汇总只认 .json）。`);
+    }
   }
 
   // 汇总所有轮
-  const files = readdirSync(outDir)
+  const allFiles = readdirSync(outDir)
     .filter(f => f.startsWith('branch_isolation_') && f.endsWith('.json'))
     .map(f => ({ f, t: statSync(join(outDir, f)).mtimeMs }))
     .sort((a, b) => a.t - b.t)
     .map(x => x.f);
+  // 本次跑的分叉组数决定默认只看哪一批：5 组与 12 组混在一起平均是错的
+  const files = only.length > 0 ? allFiles.filter(f => only.some(o => f.includes(o))) : allFiles;
   const loaded = files.map(f => JSON.parse(readFileSync(join(outDir, f), 'utf-8')) as RunResult[]);
-  const mdPath = join(outDir, 'branch_isolation_report.md');
+  const mdPath = join(outDir, outName);
   writeFileSync(mdPath, buildMarkdown(loaded, files), 'utf-8');
-  console.log(`\n📄 跨轮汇总：${mdPath}`);
+  console.log(`\n📄 跨轮汇总：${mdPath}（纳入 ${files.length} 轮）`);
 
   console.log(`\n${'═'.repeat(70)}\n汇总（Judge 法污染率）\n${'═'.repeat(70)}`);
   for (const arm of arms) {

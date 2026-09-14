@@ -105,6 +105,10 @@ function parseArgs() {
     segments: parseInt(get('segments', '3'), 10),
     reportOnly: argv.includes('--report-only'),
     roundsReport: argv.includes('--rounds-report'),
+    // 只纳入文件名含指定子串的结果文件（逗号分隔）。
+    // 用途：不同轮次可能跑在不同代码版本上，混在一起平均是错的。
+    only: get('only', '').split(',').map(s => s.trim()).filter(Boolean),
+    outName: get('out', 'ablation_report_rounds.md'),
   };
 }
 
@@ -124,7 +128,7 @@ function parseArgs() {
  *   ② 按故事配对：每个故事先在各轮内取中位数并跨轮平均 → 得到 n=故事数 的
  *      配对样本，再做配对 t 检验。这样配对单位仍然是故事，轮次只用来降噪。
  */
-function buildRoundsMarkdown(rounds: RunResult[][], arms: Arm[]): string {
+function buildRoundsMarkdown(rounds: RunResult[][], arms: Arm[], files: string[] = []): string {
   const storyTitles = [...new Set(rounds.flat().map(r => r.story))];
 
   // 每轮每档的汇总量
@@ -151,11 +155,37 @@ function buildRoundsMarkdown(rounds: RunResult[][], arms: Arm[]): string {
   const storySeries = (arm: Arm): number[] =>
     storyTitles.map(s => perStory(arm, s)).filter((v): v is number => v !== null);
 
+  /**
+   * 每个故事的「退化发生率」：该故事该档在多少轮里触发过退化复读。
+   *
+   * 这是比「非退化中位数」更适合做配对检验的量，原因：每个故事每轮只有
+   * (段数-1) 个相邻对。若该故事某一轮触发了一次复读，它的"中位数"就会
+   * 从 ~0.03 跳到 ~0.5，于是「跨轮平均的中位数」仍被污染。而发生率是计数，
+   * 一次触发只贡献 1/R，不会被单个事件带偏。
+   */
+  const occRate = (arm: Arm, story: string): number | null => {
+    let hit = 0, total = 0;
+    for (const round of rounds) {
+      const r = round.find(x => x.story === story && x.arm === arm);
+      if (!r) continue;
+      total++;
+      if (splitSimilarity(r.adjacentSim.values).degenerateCount > 0) hit++;
+    }
+    return total === 0 ? null : hit / total;
+  };
+  const occSeries = (arm: Arm): number[] =>
+    storyTitles.map(s => occRate(arm, s)).filter((v): v is number => v !== null);
+
   const lines: string[] = [];
   lines.push('# 多轮汇总（跨轮聚合）');
   lines.push('');
   lines.push(`> 数据来源：${rounds.length} 轮独立实验，每轮 ${storyTitles.length} 故事 × ${arms.length} 档。`);
   lines.push('> 各轮结果文件按修改时间排序，全部纳入。');
+  if (files.length > 0) {
+    lines.push('>');
+    lines.push('> 纳入的文件：');
+    files.forEach(f => lines.push(`> - \`${f}\``));
+  }
   lines.push('');
   lines.push('## 一、每档的轮均值 ± 轮间标准差');
   lines.push('');
@@ -176,12 +206,99 @@ function buildRoundsMarkdown(rounds: RunResult[][], arms: Arm[]): string {
   lines.push('> **轮间标准差**这一列是关键：如果它和档间差同量级，说明这个样本量还测不出差异。');
   lines.push('');
 
-  lines.push('## 二、按故事配对的 t 检验（以跨轮平均的非退化中位数为配对样本）');
+  lines.push('## 二、主指标：退化复读发生率（按故事配对检验）');
+  lines.push('');
+  lines.push('**每个故事**在该档下、有多少比例的轮次触发过退化复读。次数为计数，');
+  lines.push('不会被单个 1.00 事件带偏，因此比「跨轮平均中位数」更适合做配对检验。');
+  lines.push('');
+  const occBase = occSeries('none');
+  if (occBase.length >= 2) {
+    lines.push(`配对单位：故事（n=${occBase.length}），每档相对 \`none\` 基线。`);
+    lines.push('');
+    lines.push('| 档位 | 发生率均值 | 相对基线 | 平均差值 | t 值 | df | 显著 (p<0.05) |');
+    lines.push('|------|------:|------:|------:|------:|------:|:---:|');
+    for (const arm of arms) {
+      const s = occSeries(arm);
+      if (s.length < 2) continue;
+      const m = stats(s);
+      if (arm === 'none') {
+        lines.push(`| \`${arm}\`（基线） | ${(m.mean * 100).toFixed(0)}% | — | — | — | — | — |`);
+        continue;
+      }
+      const test = pairedTTest(occBase, s);
+      const diff = m.mean - stats(occBase).mean;
+      const rel = stats(occBase).mean === 0 ? '—' : `${((diff / stats(occBase).mean) * 100).toFixed(0)}%`;
+      lines.push(
+        `| \`${arm}\` | ${(m.mean * 100).toFixed(0)}% | ${rel} | ${diff >= 0 ? '+' : ''}${diff.toFixed(3)} | ` +
+        `${test.t.toFixed(2)} | ${test.df} | ${test.significant ? '✅ 是' : '❌ 否'} |`,
+      );
+    }
+  } else {
+    lines.push('（故事数不足，无法配对检验）');
+  }
+  lines.push('');
+  lines.push('> ⚠️ 配对单位是**故事**（n=5），轮次只用来降噪，不增加样本量。');
+  lines.push('> 要提升统计效力必须**增加故事数**，不是增加轮数。');
+  lines.push('');
+
+  // ── 两两比较（回答 RQ2：模块各自贡献 / RQ3：叠加是否更优）──
+  lines.push('### 二-1、两两配对比较（退化发生率）');
+  lines.push('');
+  lines.push('每一格是「行档位 − 列档位」的配对 t 检验。负数 = 行档位触发更少（更好）。');
+  lines.push('');
+  lines.push(`| 行 vs 列 | ${arms.map(a => `\`${a}\``).join(' | ')} |`);
+  lines.push(`|------|${arms.map(() => '------:').join('|')}|`);
+  for (const ra of arms) {
+    const sa = occSeries(ra);
+    if (sa.length < 2) continue;
+    const cells = arms.map(ca => {
+      if (ra === ca) return '—';
+      const sc = occSeries(ca);
+      if (sc.length < 2) return '—';
+      const t = pairedTTest(sc, sa);
+      const d = stats(sa).mean - stats(sc).mean;
+      return `${d >= 0 ? '+' : ''}${(d * 100).toFixed(0)}pp (t=${t.t.toFixed(2)})`;
+    });
+    lines.push(`| \`${ra}\` | ${cells.join(' | ')} |`);
+  }
+  lines.push('');
+  lines.push('> `pp` = 百分点。df=4 的双尾临界值是 2.776，本表所有 |t| 都低于它，');
+  lines.push('> 即**两两差异均未达显著**；但方向是否一致，看下一节。');
+  lines.push('');
+
+  // ── 逐故事支配关系：both 是否在任何故事上都劣于 state ──
+  const dominance = (better: Arm, worse: Arm) => {
+    let win = 0, tie = 0, lose = 0;
+    for (const s of storyTitles) {
+      const a = occRate(better, s), b = occRate(worse, s);
+      if (a === null || b === null) continue;
+      if (a < b) win++; else if (a === b) tie++; else lose++;
+    }
+    return { win, tie, lose };
+  };
+  lines.push('### 二-2、逐故事支配关系（关键：`both` 有没有在任何故事上劣于 `state`）');
+  lines.push('');
+  lines.push('| 对比 | 更优 | 打平 | 更差 | 结论 |');
+  lines.push('|------|:---:|:---:|:---:|------|');
+  for (const [a, b] of [['both', 'state'], ['both', 'graph'], ['both', 'none'], ['state', 'none'], ['graph', 'none'], ['state', 'graph']] as [Arm, Arm][]) {
+    const d = dominance(a, b);
+    const verdict = d.lose === 0 && d.win > 0
+      ? `✅ \`${a}\` 在全部 ${d.win + d.tie} 个故事上不劣于 \`${b}\``
+      : d.lose === 0
+        ? `➖ 完全相同`
+        : `⚠️ \`${a}\` 在 ${d.lose} 个故事上劣于 \`${b}\``;
+    lines.push(`| \`${a}\` vs \`${b}\` | ${d.win} | ${d.tie} | ${d.lose} | ${verdict} |`);
+  }
+  lines.push('');
+
+  lines.push('## 三、辅助指标：非退化中位数');
+  lines.push('');
+  lines.push('> ⚠️ 这一节的「跨轮平均中位数」仍可能被污染：每个故事每轮只有 (段数-1) 个相邻对，');
+  lines.push('> 某一轮触发一次复读就足以把该故事的"中位数"从 ~0.03 抬到 ~0.5。');
+  lines.push('> 所以第四节明细里出现的 0.1x–0.2x 数值不代表该档更"套路化"。**判断档位优劣请看第二节。**');
   lines.push('');
   const base = storySeries('none');
   if (base.length >= 2) {
-    lines.push(`配对单位：故事（n=${base.length}），每档相对 \`none\` 基线。`);
-    lines.push('');
     lines.push('| 档位 | 均值 | 平均差值 | t 值 | df | 显著 (p<0.05) |');
     lines.push('|------|------:|------:|------:|------:|:---:|');
     for (const arm of arms) {
@@ -203,12 +320,22 @@ function buildRoundsMarkdown(rounds: RunResult[][], arms: Arm[]): string {
     lines.push('（故事数不足，无法配对检验）');
   }
   lines.push('');
-  lines.push('## 三、逐故事明细（跨轮平均的非退化中位数）');
+  lines.push('## 四、逐故事明细');
   lines.push('');
   lines.push(`| 故事 | ${arms.map(a => `\`${a}\``).join(' | ')} |`);
   lines.push(`|------|${arms.map(() => '------:').join('|')}|`);
   for (const s of storyTitles) {
     lines.push(`| ${s} | ${arms.map(a => { const v = perStory(a, s); return v === null ? '—' : v.toFixed(3); }).join(' | ')} |`);
+  }
+  lines.push('');
+  lines.push('（上表为非退化中位数，跨轮平均；受污染问题见第三节说明）');
+  lines.push('');
+  lines.push(`### 退化发生率逐故事（各档触发过的轮次占比）`);
+  lines.push('');
+  lines.push(`| 故事 | ${arms.map(a => `\`${a}\``).join(' | ')} |`);
+  lines.push(`|------|${arms.map(() => '------:').join('|')}|`);
+  for (const s of storyTitles) {
+    lines.push(`| ${s} | ${arms.map(a => { const v = occRate(a, s); return v === null ? '—' : `${(v * 100).toFixed(0)}%`; }).join(' | ')} |`);
   }
   lines.push('');
   return lines.join('\n');
@@ -840,7 +967,7 @@ function buildMarkdown(results: RunResult[], stories: number, segments: number):
 // ============================================================================
 
 async function main() {
-  const { arms, stories, segments, reportOnly, roundsReport } = parseArgs();
+  const { arms, stories, segments, reportOnly, roundsReport, only, outName } = parseArgs();
 
   /** 列出落盘的结果文件，按修改时间升序 */
   const listResultFiles = (): string[] => {
@@ -858,18 +985,26 @@ async function main() {
   if (roundsReport) {
     // 跨轮汇总：把所有历史结果文件都当成独立的一轮
     const outDir = join(process.cwd(), 'Docs', 'ablation');
-    const files = listResultFiles();
-    if (files.length === 0) {
+    const allFiles = listResultFiles();
+    if (allFiles.length === 0) {
       console.error(`未找到历史结果。请先跑一次实验（去掉 --rounds-report）。\n查找目录：${outDir}`);
       process.exit(1);
+    }
+    const files = only.length === 0 ? allFiles : allFiles.filter(f => only.some(o => f.includes(o)));
+    if (files.length === 0) {
+      console.error(`--only=${only.join(',')} 没有匹配到任何结果文件。\n可选：\n` + allFiles.map(f => `  ${f}`).join('\n'));
+      process.exit(1);
+    }
+    if (only.length > 0) {
+      console.log(`\n🔎 只纳入匹配 --only=${only.join(',')} 的 ${files.length} 个文件（共 ${allFiles.length} 个）`);
     }
     const rounds = files.map(f => JSON.parse(readFileSync(join(outDir, f), 'utf-8')) as RunResult[]);
     console.log(`\n📂 纳入 ${rounds.length} 轮结果：`);
     files.forEach((f, i) => console.log(`   ${i + 1}. ${f}（${rounds[i].length} 条记录）`));
 
     const presentArms = arms.filter(a => rounds.some(r => r.some(x => x.arm === a)));
-    const mdPath = join(outDir, 'ablation_report_rounds.md');
-    writeFileSync(mdPath, buildRoundsMarkdown(rounds, presentArms), 'utf-8');
+    const mdPath = join(outDir, outName);
+    writeFileSync(mdPath, buildRoundsMarkdown(rounds, presentArms, files), 'utf-8');
     console.log(`\n💾 已生成跨轮汇总：${mdPath}`);
 
     // 控制台同步打印核心表

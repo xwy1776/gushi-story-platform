@@ -961,7 +961,16 @@ async function main() {
       console.error(`未找到历史结果。请先跑一次实验（去掉 --report-only）。\n查找目录：${outDir}`);
       process.exit(1);
     }
-    const files = only.length === 0 ? allFiles : allFiles.filter(f => only.some(o => f.includes(o)));
+    // 同 main 收尾处的默认值：只汇总本次设计（n{组数}{_tag}）的文件，别把三代设计平均在一起
+    const scopePrefix = `branch_isolation_n${defs.length}${tag ? '_' + tag : ''}_`;
+    const files = only.length === 0
+      ? allFiles.filter(f => f.startsWith(scopePrefix))
+      : allFiles.filter(f => only.some(o => f.includes(o)));
+    if (only.length === 0 && files.length === 0) {
+      console.error(`本次设计 ${scopePrefix}* 没有任何结果文件。\n可选文件：\n`
+        + allFiles.map(f => `  ${f}`).join('\n'));
+      process.exit(1);
+    }
     if (files.length === 0) {
       console.error(`--only=${only.join(',')} 没匹配到任何文件。可选：\n` + allFiles.map(f => `  ${f}`).join('\n'));
       process.exit(1);
@@ -1059,14 +1068,26 @@ async function main() {
     }
   }
 
-  // 汇总所有轮
+  // 汇总所有轮。
+  //
+  // ⚠️ 默认**只汇总本次设计产生的文件**，不是目录下所有 `branch_isolation_*.json`。
+  // 这条默认值是踩过坑才有的：早先没带 --only 时会把 n5 / n12(v1) / n12_v2 三种
+  // 不同设计的数据全捞进来平均，报告里出现"10 轮实验"、逐故事表还混着旧版的分支
+  // 标签 —— 看着像正常报告，其实是把三代设计平均在了一起。
+  // 设计一变，文件名里的 n{组数} 和 tag 就变；用它们当过滤器才安全。
+  const runPrefix = `branch_isolation_n${defs.length}${tag ? '_' + tag : ''}_`;
   const allFiles = readdirSync(outDir)
     .filter(f => f.startsWith('branch_isolation_') && f.endsWith('.json'))
     .map(f => ({ f, t: statSync(join(outDir, f)).mtimeMs }))
     .sort((a, b) => a.t - b.t)
     .map(x => x.f);
-  // 本次跑的分叉组数决定默认只看哪一批：5 组与 12 组混在一起平均是错的
-  const files = only.length > 0 ? allFiles.filter(f => only.some(o => f.includes(o))) : allFiles;
+  const scoped = allFiles.filter(f => f.startsWith(runPrefix));
+  const files = only.length > 0 ? allFiles.filter(f => only.some(o => f.includes(o))) : scoped;
+  if (only.length === 0) {
+    const skipped = allFiles.length - scoped.length;
+    console.log(`\n📎 汇总范围：本次设计 \`${runPrefix}*\` —— 纳入 ${scoped.length} 个文件`);
+    if (skipped > 0) console.log(`   （跳过 ${skipped} 个其它设计/组数的文件；需要时用 --only 显式指定）`);
+  }
   const loaded = files.map(f => JSON.parse(readFileSync(join(outDir, f), 'utf-8')) as RunResult[]);
   const mdPath = join(outDir, outName);
   writeFileSync(mdPath, buildMarkdown(loaded, files), 'utf-8');

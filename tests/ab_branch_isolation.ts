@@ -104,142 +104,148 @@ type ForkDef = {
 const FORKS: ForkDef[] = [
   {
     story: '桃园结义',
-    forkPoint: '董卓祸乱朝纲，刘关张三人兵微将寡，必须择一强援',
+    forkPoint: '三人兵微将寡，须择一路诸侯借兵',
     branchA: {
-      label: '投公孙瓒，借兵讨董',
+      label: '向公孙瓒借兵',
       states: [
-        { id: 'fa_liu_loc', type: 'character', name: '刘备', properties: { location: '北平', ally: '公孙瓒', goal: '借兵讨董' } },
-        { id: 'fa_gongsun', type: 'character', name: '公孙瓒', properties: { isAlive: 'true', location: '北平', status: '盟友', faction: '白马义从' } },
-        { id: 'fa_event', type: 'event', name: '借兵讨董', properties: { result: '公孙瓒允诺借兵三千', location: '北平' } },
+        { id: 'fa_liu', type: 'character', name: '刘备', properties: { location: '涿郡', ally: '公孙瓒', goal: '借兵讨董' } },
+        { id: 'fa_p', type: 'character', name: '公孙瓒', properties: { isAlive: 'true', location: '北平', status: '盟友', faction: '白马义从' } },
+        { id: 'fa_ev', type: 'event', name: '北平借兵', properties: { result: '公孙瓒允诺借兵三千', location: '北平' } },
       ],
       edges: [
         { from: '刘备', to: '公孙瓒', type: 'ally_of' },
-        { from: '公孙瓒', to: '董卓', type: 'conflicts_with' },
       ],
-      markers: ['北平'],
-      factsForJudge: '刘备投奔公孙瓒，驻扎北平，向公孙瓒借兵讨伐董卓；公孙瓒是盟友，答应借兵三千。',
+      markers: ['公孙瓒'],
+      factsForJudge: '刘备向公孙瓒借兵，驻扎北平，公孙瓒答应借兵三千，二人是盟友。',
     },
     branchB: {
-      label: '投曹操，会盟讨董',
+      label: '向陶谦借兵',
       states: [
-        { id: 'fb_liu_loc', type: 'character', name: '刘备', properties: { location: '许都', ally: '曹操', goal: '会盟讨董' } },
-        { id: 'fb_caocao', type: 'character', name: '曹操', properties: { isAlive: 'true', location: '许都', status: '盟友', faction: '兖州军' } },
-        { id: 'fb_event', type: 'event', name: '许都会盟', properties: { result: '曹操与刘备会盟于许都', location: '许都' } },
+        { id: 'fb_liu', type: 'character', name: '刘备', properties: { location: '涿郡', ally: '陶谦', goal: '借兵讨董' } },
+        { id: 'fb_p', type: 'character', name: '陶谦', properties: { isAlive: 'true', location: '徐州', status: '盟友', faction: '丹阳兵' } },
+        { id: 'fb_ev', type: 'event', name: '徐州借兵', properties: { result: '陶谦允诺借兵三千', location: '徐州' } },
       ],
       edges: [
-        { from: '刘备', to: '曹操', type: 'ally_of' },
-        { from: '曹操', to: '董卓', type: 'conflicts_with' },
+        { from: '刘备', to: '陶谦', type: 'ally_of' },
       ],
-      markers: ['许都'],
-      factsForJudge: '刘备投奔曹操，驻扎许都，与曹操会盟共同讨伐董卓；曹操是盟友。',
+      markers: ['陶谦'],
+      factsForJudge: '刘备向陶谦借兵，驻扎徐州，陶谦答应借兵三千，二人是盟友。',
     },
   },
   {
     story: '张骞出使西域',
-    forkPoint: '张骞被匈奴扣留多年，单于许其归汉但要求留下符节',
+    forkPoint: '张骞脱身后，先赴西域哪一国',
     branchA: {
-      label: '持节不屈，伺机西逃',
+      label: '先至大宛',
       states: [
-        { id: 'fa_zhang', type: 'character', name: '张骞', properties: { location: '匈奴西部', status: '持节不屈', goal: '西行大宛' } },
-        { id: 'fa_event', type: 'event', name: '西逃大宛', properties: { result: '张骞携随从逃脱，西行至大宛', location: '大宛' } },
+        { id: 'fa_zh', type: 'character', name: '张骞', properties: { location: '大宛', status: '汉使', goal: '联络大月氏' } },
+        { id: 'fa_w', type: 'character', name: '大宛王', properties: { isAlive: 'true', location: '大宛', status: '盟友', stance: '礼遇汉使' } },
+        { id: 'fa_ev', type: 'event', name: '大宛之行', properties: { result: '张骞先至大宛，大宛王礼遇之', location: '大宛' } },
       ],
-      edges: [{ from: '张骞', to: '大宛', type: 'involves' }],
+      edges: [
+        { from: '张骞', to: '大宛', type: 'ally_of' },
+      ],
       markers: ['大宛'],
-      factsForJudge: '张骞拒绝交出符节，伺机向西逃脱，最终西行到达大宛国。',
+      factsForJudge: '张骞脱身后先到大宛国，大宛王礼遇他，双方交好。',
     },
     branchB: {
-      label: '受胁迫留居匈奴',
+      label: '先至乌孙',
       states: [
-        { id: 'fb_zhang', type: 'character', name: '张骞', properties: { location: '匈奴王庭', status: '被迫留居', goal: '保全性命' } },
-        { id: 'fb_event', type: 'event', name: '匈奴娶妻', properties: { result: '张骞在匈奴娶妻生子，留居王庭', location: '匈奴王庭' } },
+        { id: 'fb_zh', type: 'character', name: '张骞', properties: { location: '乌孙', status: '汉使', goal: '联络大月氏' } },
+        { id: 'fb_w', type: 'character', name: '乌孙昆莫', properties: { isAlive: 'true', location: '乌孙', status: '盟友', stance: '礼遇汉使' } },
+        { id: 'fb_ev', type: 'event', name: '乌孙之行', properties: { result: '张骞先至乌孙，昆莫礼遇之', location: '乌孙' } },
       ],
-      edges: [{ from: '张骞', to: '匈奴王庭', type: 'involves' }],
-      markers: ['王庭'],
-      factsForJudge: '张骞被迫留在匈奴王庭，娶妻生子，长期留居匈奴。',
+      edges: [
+        { from: '张骞', to: '乌孙', type: 'ally_of' },
+      ],
+      markers: ['乌孙'],
+      factsForJudge: '张骞脱身后先到乌孙国，乌孙昆莫礼遇他，双方交好。',
     },
   },
   {
     story: '荆轲刺秦',
-    forkPoint: '荆轲已死，秦王震怒，燕国面临报复',
+    forkPoint: '秦军压境，燕国割地求和，割哪一处',
     branchA: {
-      label: '献督亢地图求和',
+      label: '割督亢之地',
       states: [
-        { id: 'fa_yan', type: 'character', name: '燕王喜', properties: { location: '蓟城', status: '求和', goal: '献地保国' } },
-        { id: 'fa_event', type: 'event', name: '献督亢求和', properties: { result: '燕国献督亢地图向秦求和', location: '咸阳' } },
+        { id: 'fa_y', type: 'character', name: '燕王喜', properties: { location: '蓟城', status: '求和', goal: '割地保国' } },
+        { id: 'fa_ev', type: 'event', name: '割督亢', properties: { result: '燕国割督亢之地与秦求和', location: '蓟城' } },
       ],
-      edges: [{ from: '燕王喜', to: '督亢', type: 'involves' }],
+      edges: [
+        { from: '燕王喜', to: '督亢', type: 'involves' },
+      ],
       markers: ['督亢'],
-      factsForJudge: '燕王喜决定献出督亢地图向秦国求和，试图以此保全燕国。',
+      factsForJudge: '燕国决定割让督亢之地给秦国以求和。',
     },
     branchB: {
-      label: '退守辽东',
+      label: '割辽西之地',
       states: [
-        { id: 'fb_yan', type: 'character', name: '燕王喜', properties: { location: '辽东', status: '退守', goal: '据险自保' } },
-        { id: 'fb_event', type: 'event', name: '退保辽东', properties: { result: '燕国放弃蓟城，退守辽东', location: '辽东' } },
+        { id: 'fb_y', type: 'character', name: '燕王喜', properties: { location: '蓟城', status: '求和', goal: '割地保国' } },
+        { id: 'fb_ev', type: 'event', name: '割辽西', properties: { result: '燕国割辽西之地与秦求和', location: '蓟城' } },
       ],
-      edges: [{ from: '燕王喜', to: '辽东', type: 'involves' }],
-      markers: ['辽东', '蓟城'],
-      factsForJudge: '燕王喜放弃蓟城，率众退守辽东，想凭辽水据险自保。',
+      edges: [
+        { from: '燕王喜', to: '辽西', type: 'involves' },
+      ],
+      markers: ['辽西'],
+      factsForJudge: '燕国决定割让辽西之地给秦国以求和。',
     },
   },
   {
     story: '赤壁之战',
-    forkPoint: '曹操大军压境，孙权必须决定战与降',
+    forkPoint: '孙权决意迎战，须任命一人统领全军',
     branchA: {
-      label: '联刘抗曹',
+      label: '以周瑜统军',
       states: [
-        { id: 'fa_sun', type: 'character', name: '孙权', properties: { status: '联刘抗曹', location: '柴桑', goal: '联合刘备抗击曹操' } },
-        { id: 'fa_liu', type: 'character', name: '刘备', properties: { isAlive: 'true', status: '盟友', location: '樊口' } },
-        { id: 'fa_event', type: 'event', name: '孙刘联盟', properties: { result: '孙权与刘备结盟，共抗曹操', location: '柴桑' } },
+        { id: 'fa_s', type: 'character', name: '周瑜', properties: { location: '柴桑', status: '全军统帅', goal: '击退曹军' } },
+        { id: 'fa_ev', type: 'event', name: '周瑜挂帅', properties: { result: '孙权任命周瑜统领全军', location: '柴桑' } },
       ],
       edges: [
-        { from: '孙权', to: '刘备', type: 'ally_of' },
-        { from: '孙权', to: '曹操', type: 'conflicts_with' },
+        { from: '周瑜', to: '曹操', type: 'conflicts_with' },
       ],
-      markers: ['樊口', '孙刘联盟'],
-      factsForJudge: '孙权决定联合刘备共同抗击曹操，双方在柴桑结盟，刘备驻樊口。',
+      markers: ['周瑜'],
+      factsForJudge: '孙权任命周瑜为全军统帅，统领江东军队抗击曹操。',
     },
     branchB: {
-      label: '纳降曹操',
+      label: '以程普统军',
       states: [
-        { id: 'fb_sun', type: 'character', name: '孙权', properties: { status: '纳降', location: '柴桑', goal: '保全江东' } },
-        { id: 'fb_cao', type: 'character', name: '曹操', properties: { isAlive: 'true', status: '受降方', location: '江陵' } },
-        { id: 'fb_event', type: 'event', name: '东吴归降', properties: { result: '孙权向曹操纳降，江东归附', location: '柴桑' } },
+        { id: 'fb_s', type: 'character', name: '程普', properties: { location: '柴桑', status: '全军统帅', goal: '击退曹军' } },
+        { id: 'fb_ev', type: 'event', name: '程普挂帅', properties: { result: '孙权任命程普统领全军', location: '柴桑' } },
       ],
       edges: [
-        { from: '孙权', to: '曹操', type: 'ally_of' },
-        { from: '孙权', to: '刘备', type: 'conflicts_with' },
+        { from: '程普', to: '曹操', type: 'conflicts_with' },
       ],
-      markers: ['江陵', '归降'],
-      factsForJudge: '孙权决定向曹操纳降，江东归附曹操，刘备成为敌人。',
+      markers: ['程普'],
+      factsForJudge: '孙权任命程普为全军统帅，统领江东军队抗击曹操。',
     },
   },
   {
     story: '郭子仪单骑退敌',
-    forkPoint: '回纥、吐蕃联军压境，唐军兵力空虚',
+    forkPoint: '唐廷须遣一人赴回纥营交涉',
     branchA: {
-      label: '单骑入回纥营结盟',
+      label: '遣仆固怀恩前往',
       states: [
-        { id: 'fa_guo', type: 'character', name: '郭子仪', properties: { location: '泾阳', status: '单骑赴敌营', goal: '结盟回纥' } },
-        { id: 'fa_huihe', type: 'character', name: '回纥', properties: { status: '盟友', location: '泾阳城外' } },
-        { id: 'fa_event', type: 'event', name: '泾阳结盟', properties: { result: '郭子仪与回纥结盟，共击吐蕃', location: '泾阳' } },
+        { id: 'fa_g', type: 'character', name: '仆固怀恩', properties: { location: '泾阳', status: '唐使', goal: '说退回纥' } },
+        { id: 'fa_h', type: 'character', name: '回纥可汗', properties: { isAlive: 'true', location: '泾阳城外', status: '盟友', stance: '愿与唐和' } },
+        { id: 'fa_ev', type: 'event', name: '仆固怀恩出使', properties: { result: '仆固怀恩赴回纥营结盟退敌', location: '泾阳' } },
       ],
       edges: [
-        { from: '郭子仪', to: '回纥', type: 'ally_of' },
-        { from: '回纥', to: '吐蕃', type: 'conflicts_with' },
+        { from: '仆固怀恩', to: '回纥可汗', type: 'ally_of' },
       ],
-      markers: ['回纥营'],
-      factsForJudge: '郭子仪单骑进入回纥营帐，说服回纥与唐结盟，转而共同攻击吐蕃。',
+      markers: ['仆固怀恩'],
+      factsForJudge: '唐廷派仆固怀恩前往回纥营帐交涉，与回纥结盟退敌。',
     },
     branchB: {
-      label: '固守泾阳待援',
+      label: '遣李光弼前往',
       states: [
-        { id: 'fb_guo', type: 'character', name: '郭子仪', properties: { location: '泾阳', status: '闭城固守', goal: '待援出击' } },
-        { id: 'fb_event', type: 'event', name: '泾阳固守', properties: { result: '唐军闭城固守，等待援军', location: '泾阳' } },
+        { id: 'fb_g', type: 'character', name: '李光弼', properties: { location: '泾阳', status: '唐使', goal: '说退回纥' } },
+        { id: 'fb_h', type: 'character', name: '回纥可汗', properties: { isAlive: 'true', location: '泾阳城外', status: '盟友', stance: '愿与唐和' } },
+        { id: 'fb_ev', type: 'event', name: '李光弼出使', properties: { result: '李光弼赴回纥营结盟退敌', location: '泾阳' } },
       ],
-      edges: [{ from: '郭子仪', to: '吐蕃', type: 'conflicts_with' }],
-      markers: ['闭城'],
-      factsForJudge: '郭子仪闭城固守泾阳，不与敌军交战，等待援军到来。',
+      edges: [
+        { from: '李光弼', to: '回纥可汗', type: 'ally_of' },
+      ],
+      markers: ['李光弼'],
+      factsForJudge: '唐廷派李光弼前往回纥营帐交涉，与回纥结盟退敌。',
     },
   },
 
@@ -257,171 +263,197 @@ const FORKS: ForkDef[] = [
   // 每条 opener 同样遵守：不写任何一条分支的去向，也不含任何 marker 词。
   // ──────────────────────────────────────────────────────────────────────
   {
+    // 【v2 设计·试点】两条分支**都不是标准历史**，模型没有强先验可依赖。
+    // 旧版是"倚柱碎璧 vs 献璧受封"，但史实是前者，模型按先验写，测不出记忆的作用。
     story: '完璧归赵',
-    forkPoint: '秦昭王得璧而不予城，蔺相如必须当场应对',
+    forkPoint: '秦昭王得和氏璧后，是否依约割城',
     branchA: {
-      label: '诈称璧有瑕，持璧倚柱',
+      label: '恃强不割城',
       states: [
-        { id: 'fa_lxr', type: 'character', name: '蔺相如', properties: { location: '咸阳', status: '持璧倚柱', goal: '完璧归赵' } },
-        { id: 'fa_event', type: 'event', name: '倚柱碎璧', properties: { result: '蔺相如怒斥秦王，威胁碎璧，终得归赵', location: '咸阳' } },
+        { id: 'fa_lxr', type: 'character', name: '蔺相如', properties: { location: '咸阳', status: '持璧', goal: '索回和氏璧' } },
+        { id: 'fa_qin', type: 'character', name: '秦昭王', properties: { isAlive: 'true', location: '咸阳', status: '恃强', stance: '不割城', goal: '白取和氏璧' } },
+        { id: 'fa_event', type: 'event', name: '秦王背约', properties: { result: '秦昭王得璧而不予城，蔺相如设计取回', location: '咸阳' } },
       ],
       edges: [{ from: '蔺相如', to: '秦昭王', type: 'conflicts_with' }],
-      markers: ['倚柱', '碎璧'],
-      factsForJudge: '蔺相如诈称璧有瑕疵，取回和氏璧，倚柱怒斥秦昭王，威胁将璧撞碎，最终完璧归赵。',
+      markers: ['背约'],
+      factsForJudge: '秦昭王仗着国力强横，得璧之后不肯交割十五城；蔺相如与之对立，设计把和氏璧取回。',
     },
     branchB: {
-      label: '忍气献璧，留秦待命',
+      label: '依约割城',
       states: [
-        { id: 'fb_lxr', type: 'character', name: '蔺相如', properties: { location: '咸阳', status: '客卿', goal: '保全性命' } },
-        { id: 'fb_event', type: 'event', name: '献璧受地', properties: { result: '蔺相如献出和氏璧，接受秦的封地，留秦为客卿', location: '咸阳' } },
+        { id: 'fb_lxr', type: 'character', name: '蔺相如', properties: { location: '咸阳', status: '献璧', goal: '完成交割' } },
+        { id: 'fb_qin', type: 'character', name: '秦昭王', properties: { isAlive: 'true', location: '咸阳', status: '守信', stance: '割十五城', goal: '换得和氏璧' } },
+        { id: 'fb_event', type: 'event', name: '秦赵交割', properties: { result: '秦昭王依约交割十五城，蔺相如献璧', location: '咸阳' } },
       ],
-      edges: [{ from: '蔺相如', to: '秦昭王', type: 'belongs_to' }],
-      markers: ['客卿', '受地'],
-      factsForJudge: '蔺相如忍气献出和氏璧给秦国，接受秦国封地，留在咸阳做秦国的客卿。',
+      edges: [{ from: '蔺相如', to: '秦昭王', type: 'ally_of' }],
+      markers: ['交割'],
+      factsForJudge: '秦昭王守信，依约把十五城交割给赵国；蔺相如献上和氏璧，双方顺利完成交换。',
     },
   },
   {
     story: '鸿门宴',
-    forkPoint: '项庄舞剑，刘邦性命危在旦夕',
+    forkPoint: '刘邦脱身之后，须留一人断后',
     branchA: {
-      label: '借如厕遁归霸上',
+      label: '命樊哙断后',
       states: [
-        { id: 'fa_lb', type: 'character', name: '刘邦', properties: { location: '霸上', status: '脱身', goal: '保全性命' } },
-        { id: 'fa_event', type: 'event', name: '遁归霸上', properties: { result: '樊哙闯帐护主，刘邦借如厕之机遁归霸上', location: '霸上' } },
+        { id: 'fa_f', type: 'character', name: '樊哙', properties: { location: '霸上', status: '断后', goal: '护刘邦脱身' } },
+        { id: 'fa_ev', type: 'event', name: '樊哙断后', properties: { result: '刘邦命樊哙断后，自引轻骑遁归霸上', location: '霸上' } },
       ],
-      edges: [{ from: '樊哙', to: '刘邦', type: 'belongs_to' }],
-      markers: ['霸上', '闯帐'],
-      factsForJudge: '樊哙闯帐护主，刘邦借如厕之机逃离鸿门，回到霸上军中。',
+      edges: [
+        { from: '樊哙', to: '刘邦', type: 'belongs_to' },
+      ],
+      markers: ['樊哙'],
+      factsForJudge: '刘邦命樊哙留下断后，自己率轻骑逃回霸上。',
     },
     branchB: {
-      label: '留宿鸿门，结为姻亲',
+      label: '命夏侯婴断后',
       states: [
-        { id: 'fb_lb', type: 'character', name: '刘邦', properties: { location: '鸿门', status: '留宿', goal: '结好项羽' } },
-        { id: 'fb_event', type: 'event', name: '鸿门结姻', properties: { result: '刘邦留宿鸿门与项羽共饮，两家结为姻亲', location: '鸿门' } },
+        { id: 'fb_f', type: 'character', name: '夏侯婴', properties: { location: '霸上', status: '断后', goal: '护刘邦脱身' } },
+        { id: 'fb_ev', type: 'event', name: '夏侯婴断后', properties: { result: '刘邦命夏侯婴断后，自引轻骑遁归霸上', location: '霸上' } },
       ],
-      edges: [{ from: '刘邦', to: '项羽', type: 'ally_of' }],
-      markers: ['姻亲', '留宿'],
-      factsForJudge: '刘邦留在鸿门过夜，与项羽共饮，双方结为姻亲，关系和睦。',
+      edges: [
+        { from: '夏侯婴', to: '刘邦', type: 'belongs_to' },
+      ],
+      markers: ['夏侯婴'],
+      factsForJudge: '刘邦命夏侯婴留下断后，自己率轻骑逃回霸上。',
     },
   },
   {
     story: '卧薪尝胆',
-    forkPoint: '勾践获释归国，越国百废待兴',
+    forkPoint: '勾践归国后，须以一人主持国政',
     branchA: {
-      label: '定都会稽，十年生聚',
+      label: '以范蠡主政',
       states: [
-        { id: 'fa_gj', type: 'character', name: '勾践', properties: { location: '会稽', status: '越王', goal: '十年生聚' } },
-        { id: 'fa_event', type: 'event', name: '会稽生聚', properties: { result: '勾践定都会稽，十年生聚、十年教训', location: '会稽' } },
+        { id: 'fa_f', type: 'character', name: '范蠡', properties: { location: '会稽', status: '主持国政', goal: '富国强兵' } },
+        { id: 'fa_ev', type: 'event', name: '范蠡主政', properties: { result: '勾践以范蠡主持国政，十年生聚', location: '会稽' } },
       ],
-      edges: [{ from: '勾践', to: '会稽', type: 'involves' }],
-      markers: ['会稽'],
-      factsForJudge: '勾践定都会稽，在旧都整顿国政，十年生聚、十年教训，积蓄力量。',
+      edges: [
+        { from: '范蠡', to: '勾践', type: 'belongs_to' },
+      ],
+      markers: ['范蠡'],
+      factsForJudge: '勾践任命范蠡主持越国国政，整顿内政、积蓄力量。',
     },
     branchB: {
-      label: '迁都姑苏，示弱事吴',
+      label: '以文种主政',
       states: [
-        { id: 'fb_gj', type: 'character', name: '勾践', properties: { location: '姑苏', status: '附庸', goal: '示弱自保' } },
-        { id: 'fb_event', type: 'event', name: '迁都姑苏', properties: { result: '勾践迁都姑苏，向吴国称臣纳贡', location: '姑苏' } },
+        { id: 'fb_f', type: 'character', name: '文种', properties: { location: '会稽', status: '主持国政', goal: '富国强兵' } },
+        { id: 'fb_ev', type: 'event', name: '文种主政', properties: { result: '勾践以文种主持国政，十年生聚', location: '会稽' } },
       ],
-      edges: [{ from: '勾践', to: '夫差', type: 'belongs_to' }],
-      markers: ['姑苏'],
-      factsForJudge: '勾践把国都迁到吴国的姑苏，向吴王称臣纳贡，以示不再与吴为敌。',
+      edges: [
+        { from: '文种', to: '勾践', type: 'belongs_to' },
+      ],
+      markers: ['文种'],
+      factsForJudge: '勾践任命文种主持越国国政，整顿内政、积蓄力量。',
     },
   },
   {
     story: '破釜沉舟',
-    forkPoint: '项羽新掌军权，楚军进退未定',
+    forkPoint: '项羽渡河之后，须先攻秦军一处',
     branchA: {
-      label: '渡河救赵，破釜沉舟',
+      label: '先攻甬道断粮',
       states: [
-        { id: 'fa_xy', type: 'character', name: '项羽', properties: { location: '巨鹿', status: '上将', goal: '解赵之围' } },
-        { id: 'fa_event', type: 'event', name: '破釜沉舟', properties: { result: '项羽引兵渡河，沉船破釜，大破秦军', location: '巨鹿' } },
+        { id: 'fa_xy', type: 'character', name: '项羽', properties: { location: '巨鹿', status: '楚军统帅', goal: '断秦粮道' } },
+        { id: 'fa_ev', type: 'event', name: '攻甬道', properties: { result: '项羽先攻甬道，断绝秦军粮道', location: '巨鹿' } },
       ],
-      edges: [{ from: '项羽', to: '章邯', type: 'conflicts_with' }],
-      markers: ['破釜', '沉舟'],
-      factsForJudge: '项羽率军渡河救赵，过河后凿沉船只、砸破炊具，只带三日粮，在巨鹿大破秦军。',
+      edges: [
+        { from: '项羽', to: '章邯', type: 'conflicts_with' },
+      ],
+      markers: ['甬道'],
+      factsForJudge: '项羽渡河后先攻秦军的甬道，切断其粮道。',
     },
     branchB: {
-      label: '回师彭城，先固根本',
+      label: '先攻王离解围',
       states: [
-        { id: 'fb_xy', type: 'character', name: '项羽', properties: { location: '彭城', status: '上将', goal: '稳固后方' } },
-        { id: 'fb_event', type: 'event', name: '回师彭城', properties: { result: '项羽回师彭城，整训士卒，暂不出战', location: '彭城' } },
+        { id: 'fb_xy', type: 'character', name: '项羽', properties: { location: '巨鹿', status: '楚军统帅', goal: '解巨鹿之围' } },
+        { id: 'fb_ev', type: 'event', name: '攻王离', properties: { result: '项羽先攻王离，解巨鹿之围', location: '巨鹿' } },
       ],
-      edges: [{ from: '项羽', to: '宋义', type: 'belongs_to' }],
-      markers: ['彭城'],
-      factsForJudge: '项羽率军返回彭城，先稳固自己的根据地，整训士卒，暂不北上救赵。',
+      edges: [
+        { from: '项羽', to: '王离', type: 'conflicts_with' },
+      ],
+      markers: ['王离'],
+      factsForJudge: '项羽渡河后先攻围困巨鹿的王离部，替赵国解围。',
     },
   },
   {
     story: '三顾茅庐',
-    forkPoint: '两次拜访诸葛亮不遇，刘备还要不要再去',
+    forkPoint: '诸葛亮出山后，先向何处发展',
     branchA: {
-      label: '三顾隆中，终见卧龙',
+      label: '先图荆州',
       states: [
-        { id: 'fa_lb', type: 'character', name: '刘备', properties: { location: '隆中', status: '左将军', goal: '请诸葛亮出山' } },
-        { id: 'fa_event', type: 'event', name: '隆中对策', properties: { result: '刘备三顾茅庐，诸葛亮出山辅佐', location: '隆中' } },
+        { id: 'fa_z', type: 'character', name: '诸葛亮', properties: { location: '新野', status: '军师', goal: '先取荆州为家' } },
+        { id: 'fa_ev', type: 'event', name: '图荆州', properties: { result: '诸葛亮建议刘备先取荆州为根基', location: '新野' } },
       ],
-      edges: [{ from: '刘备', to: '诸葛亮', type: 'ally_of' }],
-      markers: ['隆中'],
-      factsForJudge: '刘备第三次前往隆中，终于见到诸葛亮，诸葛亮为其分析天下形势后出山辅佐。',
+      edges: [
+        { from: '诸葛亮', to: '刘表', type: 'conflicts_with' },
+      ],
+      markers: ['荆州'],
+      factsForJudge: '诸葛亮建议刘备先夺取荆州作为根基。',
     },
     branchB: {
-      label: '改赴襄阳，另求名士',
+      label: '先图益州',
       states: [
-        { id: 'fb_lb', type: 'character', name: '刘备', properties: { location: '襄阳', status: '左将军', goal: '另求贤才' } },
-        { id: 'fb_event', type: 'event', name: '襄阳求贤', properties: { result: '刘备放弃诸葛亮，转赴襄阳延揽其他名士', location: '襄阳' } },
+        { id: 'fb_z', type: 'character', name: '诸葛亮', properties: { location: '新野', status: '军师', goal: '先取益州为基' } },
+        { id: 'fb_ev', type: 'event', name: '图益州', properties: { result: '诸葛亮建议刘备先取益州为根基', location: '新野' } },
       ],
-      edges: [{ from: '刘备', to: '刘表', type: 'belongs_to' }],
-      markers: ['襄阳'],
-      factsForJudge: '刘备不再去找诸葛亮，转而前往襄阳，向刘表求助并延揽其他名士。',
+      edges: [
+        { from: '诸葛亮', to: '刘璋', type: 'conflicts_with' },
+      ],
+      markers: ['益州'],
+      factsForJudge: '诸葛亮建议刘备先夺取益州作为根基。',
     },
   },
   {
+    // 【v2 设计·试点】两位劝降者历史上都真实去过，模型对"这次来的是谁"没有强先验。
+    // 旧版是"北海牧羊 vs 王庭受降"，但史实是前者，模型按先验写，测不出记忆的作用。
     story: '苏武牧羊',
-    forkPoint: '单于逼降，苏武持节不屈',
+    forkPoint: '单于逼降不成，改派使者游说苏武',
     branchA: {
-      label: '徙北海牧羊，啮雪吞旃',
+      label: '遣卫律劝降',
       states: [
-        { id: 'fa_sw', type: 'character', name: '苏武', properties: { location: '北海', status: '牧羊', goal: '持节归汉' } },
-        { id: 'fa_event', type: 'event', name: '北海牧羝', properties: { result: '苏武被徙北海牧羊，啮雪吞旃，十九年不屈', location: '北海' } },
+        { id: 'fa_sw', type: 'character', name: '苏武', properties: { location: '匈奴王庭', status: '持节不屈', goal: '守节归汉' } },
+        { id: 'fa_envoy', type: 'character', name: '卫律', properties: { isAlive: 'true', location: '匈奴王庭', role: '劝降使者', stance: '威逼利诱' } },
+        { id: 'fa_event', type: 'event', name: '卫律劝降', properties: { result: '单于遣卫律前来劝降苏武', location: '匈奴王庭' } },
       ],
-      edges: [{ from: '苏武', to: '匈奴单于', type: 'conflicts_with' }],
-      markers: ['北海'],
-      factsForJudge: '苏武被流放到北海牧羊，啮雪吞旃，坚持十九年不投降，始终手持汉节。',
+      edges: [{ from: '卫律', to: '苏武', type: 'involves' }],
+      markers: ['卫律'],
+      factsForJudge: '单于派卫律前来劝降苏武；卫律是投降匈奴的汉人，以威逼利诱相劝。',
     },
     branchB: {
-      label: '假意受降，滞留王庭',
+      label: '遣李陵劝降',
       states: [
-        { id: 'fb_sw', type: 'character', name: '苏武', properties: { location: '匈奴王庭', status: '降将', goal: '保全性命' } },
-        { id: 'fb_event', type: 'event', name: '王庭受降', properties: { result: '苏武假意投降，留在匈奴王庭娶妻生子', location: '匈奴王庭' } },
+        { id: 'fb_sw', type: 'character', name: '苏武', properties: { location: '匈奴王庭', status: '持节不屈', goal: '守节归汉' } },
+        { id: 'fb_envoy', type: 'character', name: '李陵', properties: { isAlive: 'true', location: '匈奴王庭', role: '劝降使者', stance: '以旧谊相劝' } },
+        { id: 'fb_event', type: 'event', name: '李陵劝降', properties: { result: '单于遣李陵前来劝降苏武', location: '匈奴王庭' } },
       ],
-      edges: [{ from: '苏武', to: '匈奴单于', type: 'belongs_to' }],
-      markers: ['王庭'],
-      factsForJudge: '苏武假意接受投降，留在匈奴王庭，娶妻生子，不再返回汉朝。',
+      edges: [{ from: '李陵', to: '苏武', type: 'involves' }],
+      markers: ['李陵'],
+      factsForJudge: '单于派李陵前来劝降苏武；李陵是苏武的旧友，以旧日情谊相劝。',
     },
   },
   {
+    // 【v2 设计·试点】两人当年都真实统兵（一为都督、一为前锋），模型对"这次谁挂帅"
+    // 没有强先验。旧版是"渡河决战 vs 退保建康"，但史实是前者，模型按先验写。
     story: '淝水之战',
-    forkPoint: '两军夹水对峙，晋军必须定策',
+    forkPoint: '晋军决意迎战，但朝议未定以谁为帅',
     branchA: {
-      label: '请秦兵少却，渡河决战',
+      label: '以谢玄为帅',
       states: [
-        { id: 'fa_xx', type: 'character', name: '谢玄', properties: { location: '淝水', status: '前锋都督', goal: '渡河决战' } },
-        { id: 'fa_event', type: 'event', name: '淝水决战', properties: { result: '谢玄请秦兵后撤，趁其阵动渡河猛击，大破秦军', location: '淝水' } },
+        { id: 'fa_sx', type: 'character', name: '谢玄', properties: { location: '淝水', status: '全军统帅', goal: '击退秦军' } },
+        { id: 'fa_event', type: 'event', name: '谢玄挂帅', properties: { result: '晋廷以谢玄为帅，统领北府兵迎击前秦', location: '建康' } },
       ],
       edges: [{ from: '谢玄', to: '苻坚', type: 'conflicts_with' }],
-      markers: ['少却', '渡河'],
-      factsForJudge: '谢玄派使者请秦军稍微后撤，趁秦军阵脚松动时率晋军渡河猛攻，大破前秦。',
+      markers: ['谢玄'],
+      factsForJudge: '东晋朝廷任命谢玄为全军统帅，由他统领北府兵迎击前秦大军。',
     },
     branchB: {
-      label: '坚壁清野，退保建康',
+      label: '以谢石为帅',
       states: [
-        { id: 'fb_xx', type: 'character', name: '谢安', properties: { location: '建康', status: '宰相', goal: '固守待变' } },
-        { id: 'fb_event', type: 'event', name: '退保建康', properties: { result: '东晋坚壁清野，退保建康，不与秦军决战', location: '建康' } },
+        { id: 'fb_ss', type: 'character', name: '谢石', properties: { location: '淝水', status: '全军统帅', goal: '击退秦军' } },
+        { id: 'fb_event', type: 'event', name: '谢石挂帅', properties: { result: '晋廷以谢石为帅，统领北府兵迎击前秦', location: '建康' } },
       ],
-      edges: [{ from: '谢安', to: '苻坚', type: 'conflicts_with' }],
-      markers: ['坚壁清野', '建康'],
-      factsForJudge: '东晋采取坚壁清野之策，放弃前线，退守都城建康，避免与前秦主力决战。',
+      edges: [{ from: '谢石', to: '苻坚', type: 'conflicts_with' }],
+      markers: ['谢石'],
+      factsForJudge: '东晋朝廷任命谢石为全军统帅，由他统领北府兵迎击前秦大军。',
     },
   },
 ];
@@ -440,16 +472,16 @@ const FORK_OPENERS: Record<string, string> = {
   桃园结义: '东汉末年，天下大乱。刘备、关羽、张飞三人于桃园中歃血为盟，结为异姓兄弟，誓同生死，共图兴复汉室。然而三人兵微将寡，而董卓把持朝政、横行无忌，洛阳危在旦夕。欲讨董卓，必先得一强援。刘备在中军帐中展开舆图，久久不语——投奔何人、屯驻何地，这一步走错，三人便再无翻身之日。',
   张骞出使西域: '建元三年，张骞奉汉武帝之命出使西域，联络大月氏夹击匈奴。行至中途，张骞为匈奴所获，被扣留多年。单于屡次劝降，许其归汉，但要求留下符节。张骞握着那根已经磨得发亮的符节，在帐中独坐一夜。是舍命西行，还是暂且低头，他必须作出抉择。',
   荆轲刺秦: '荆轲携樊於期首级与燕国地图入秦，图穷匕见，终未能伤秦王分毫，反被当场诛杀。消息传回燕国，燕王喜大惊失色。秦王震怒，秦军已陈兵易水之北。燕国到了生死存亡的关头，燕王喜召集群臣，必须拿定主意。',
-  赤壁之战: '曹操挟平定北方之威，率号称八十万大军南下，直逼江东。战书送到柴桑，孙权召集文武商议。张昭等文官力主迎降，周瑜、鲁肃则主战。孙权按剑而立，必须做出决定。',
+  赤壁之战: '曹操挟平定北方之威，率号称八十万大军南下，直逼江东。战书送到柴桑，孙权召集文武商议。张昭等文官力主迎降，鲁肃等武将则主战。孙权按剑而立，必须做出决定。',
   郭子仪单骑退敌: '唐代宗年间，回纥、吐蕃合兵数十万入寇，兵锋直指长安。郭子仪所部兵力空虚，退守泾阳。回纥、吐蕃大军已列阵于泾阳城外，旌旗蔽日。诸将皆请坚守不出，郭子仪却凝视着敌营的方向，久久不语。',
   // 扩样新增 7 组的 opener（同样不写分支去向、不含 marker）
-  完璧归赵: '战国之世，赵惠文王得楚人卞和之璧，秦昭王闻之，愿以十五城相易。赵王恐秦之诈，又惧其强，进退两难。宦者令缪贤荐其舍人蔺相如，赵王召而问之。相如曰："臣愿奉璧往使。"赵王许之，相如遂奉璧西入咸阳，献于秦昭王。昭王得璧大喜，传以示美人及左右，左右皆呼万岁，却绝口不提割城之事。蔺相如立于殿中，心知被欺。',
+  完璧归赵: '战国之世，赵惠文王得楚人卞和之璧，秦昭王闻之，愿以十五城相易。赵王恐秦之诈，又惧其强，进退两难。宦者令缪贤荐其舍人蔺相如，赵王召而问之。相如曰："臣愿奉璧往使。"赵王许之，相如遂奉璧西入咸阳，献于秦昭王。昭王得璧大喜，传以示美人及左右，左右皆呼万岁。至于那十五城究竟割与不割，殿上众目睽睽，谁也不知秦王心里打的什么算盘。',
   鸿门宴: '秦末，沛公刘邦先入关中，项羽大怒，驻军鸿门，欲以四十万之众击之。刘邦兵仅十万，形势危殆。项伯夜驰至刘邦军中，私见张良，欲携之俱去。张良以告刘邦，刘邦大惊。翌日，刘邦亲赴鸿门谢罪。项羽设宴相待，范增数目项羽，举所佩玉玦以示之者三，项羽默然不应。范增起，出召项庄，谓曰："君王为人不忍，若入前为寿，寿毕，请以剑舞。"',
-  卧薪尝胆: '春秋末年，吴王夫差大败越军于夫椒，越王勾践率残兵五千退保一隅。大夫文种、范蠡献策，勾践乃卑辞厚礼以求和，亲入吴宫为奴三年。夫差病，勾践尝其溲以取信，夫差感其忠，终释之归国。勾践返越之日，见宗庙残破、田野荒芜，立于江畔，久久不发一言。',
+  卧薪尝胆: '春秋末年，吴王夫差大败越军于夫椒，越王勾践率残兵五千退保一隅。越国诸大夫献策，勾践乃卑辞厚礼以求和，亲入吴宫为奴三年。夫差病，勾践尝其溲以取信，夫差感其忠，终释之归国。勾践返越之日，见宗庙残破、田野荒芜，立于江畔，久久不发一言。',
   破釜沉舟: '秦末，秦将章邯大举攻赵，赵王告急，遣使向楚怀王求救。怀王乃遣宋义为上将军、项羽为次将，率军救赵。宋义行至安阳，留四十六日不进，欲坐观秦赵相斗。时天寒大雨，士卒冻饥。项羽曰："今岁饥民贫，士卒食芋菽，军无见粮，而饮酒高会，不引兵渡河，非社稷之臣也。"晨朝，项羽即帐中斩宋义头，诸将皆慑服，莫敢枝梧。项羽既掌军权，召诸将议下一步。',
   三顾茅庐: '东汉建安十二年，刘备屯兵新野，兵微将寡，寄人篱下。徐庶临去，荐南阳诸葛亮，称其为"卧龙"。刘备遂与关羽、张飞两次前往拜访，一顾不遇，二顾只见其弟诸葛均，冒雪而返。张飞怒曰："量一村夫，何必哥哥自去！"刘备叱之。归途中，刘备勒马回望山色，沉吟不决。',
-  苏武牧羊: '西汉天汉元年，中郎将苏武奉命持节出使匈奴，因副使张胜牵涉谋反，被单于扣留。单于使卫律劝降，许以高官厚禄。苏武曰："屈节辱命，虽生，何面目以归汉！"引佩刀自刺，气绝半日乃苏。卫律知苏武终不可胁，白单于。单于愈益欲降之。',
-  淝水之战: '东晋太元八年，前秦苻坚倾国南侵，众号百万，投鞭断流。晋廷震恐，以谢石为都督、谢玄为前锋，率北府兵八万拒之。两军夹水对峙，旌旗相望。晋军诸将意见不一，谢玄与谢安书信往还，必须拿定主意。',
+  苏武牧羊: '西汉天汉元年，中郎将苏武奉命持节出使匈奴，因副使张胜牵涉谋反，被单于扣留。单于屡次逼降，许以高官厚禄。苏武曰："屈节辱命，虽生，何面目以归汉！"引佩刀自刺，气绝半日乃苏。先来劝降的那人无功而返，单于知苏武终不可胁，愈发欲降之，遂另择使者前往游说——来者是谁，苏武尚不得而知。',
+  淝水之战: '东晋太元八年，前秦苻坚倾国南侵，众号百万，投鞭断流。晋廷震恐，决意迎战。然诸将资望相当，朝议数日不决：究竟以谁挂帅，统领北府兵北上拒敌？谢安坐镇建康，迟迟未发号令。',
 };
 
 // ============================================================================
@@ -703,8 +735,17 @@ function buildMarkdown(rounds: RunResult[][], files: string[]): string {
   L.push('> 只在**分支甲**上续写；「污染」指正文引用了**分支乙**独有的事件或状态。');
   if (files.length) {
     L.push('>');
-    L.push('> 纳入文件：');
-    files.forEach(f => L.push(`> - \`${f}\``));
+    L.push('> 纳入文件与各轮覆盖：');
+    // 逐轮标注覆盖数，让"某轮少了几条"是**可见的**，而不是静默地按不同样本量平均
+    const expectedPerRound = stories.length * arms.length;
+    rounds.forEach((round, i) => {
+      const n = round.length;
+      const missing = stories.flatMap((s: string) => arms
+        .filter(a => !round.some(x => x.story === s && x.isolation === a))
+        .map(a => `${s}/${a}`));
+      const flag = missing.length === 0 ? '' : `　⚠️ 缺 ${missing.length} 条：${missing.join('、')}`;
+      L.push(`> - \`${files[i]}\` —— ${n}/${expectedPerRound} 条${flag}`);
+    });
   }
   L.push('');
   L.push('## 一、主结果：跨分支污染率与「净泄漏增量」');
@@ -853,6 +894,11 @@ function parseArgs() {
     // 用途：5 组和 12 组是两批不同的数据，混在一个汇总里平均是错的。
     only: get('only', '').split(',').map(s => s.trim()).filter(Boolean),
     outName: get('out', 'branch_isolation_report.md'),
+    // 设计变体标记，会写进结果文件名。用途：分叉设计改版后，新旧数据不能混在一个汇总里
+    tag: get('tag', ''),
+    // 只跑指定故事的分叉（逗号分隔，按 story 名精确匹配）。
+    // 用途：改设计后先小样本验证，别一上来就跑全部 12 组 × 3 轮。
+    pick: get('pick', '').split(',').map(s => s.trim()).filter(Boolean),
   };
 }
 
@@ -884,8 +930,13 @@ function validateForks(defs: ForkDef[]): string[] {
 }
 
 async function main() {
-  const { rounds, stories, segments, arms, reportOnly, only, outName } = parseArgs();
-  const defs = FORKS.slice(0, stories);
+  const { rounds, stories, segments, arms, reportOnly, only, outName, tag, pick } = parseArgs();
+  // --pick 优先于 --stories：按故事名精确挑选，便于单独验证某几个分叉
+  const defs = pick.length > 0 ? FORKS.filter(f => pick.includes(f.story)) : FORKS.slice(0, stories);
+  if (pick.length > 0) {
+    const missing = pick.filter(n => !FORKS.some(f => f.story === n));
+    if (missing.length > 0) { console.error(`--pick 里这些故事不存在：${missing.join('、')}`); process.exit(1); }
+  }
   const outDir = join(process.cwd(), 'Docs', 'ablation');
   mkdirSync(outDir, { recursive: true });
 
@@ -910,7 +961,16 @@ async function main() {
       console.error(`未找到历史结果。请先跑一次实验（去掉 --report-only）。\n查找目录：${outDir}`);
       process.exit(1);
     }
-    const files = only.length === 0 ? allFiles : allFiles.filter(f => only.some(o => f.includes(o)));
+    // 同 main 收尾处的默认值：只汇总本次设计（n{组数}{_tag}）的文件，别把三代设计平均在一起
+    const scopePrefix = `branch_isolation_n${defs.length}${tag ? '_' + tag : ''}_`;
+    const files = only.length === 0
+      ? allFiles.filter(f => f.startsWith(scopePrefix))
+      : allFiles.filter(f => only.some(o => f.includes(o)));
+    if (only.length === 0 && files.length === 0) {
+      console.error(`本次设计 ${scopePrefix}* 没有任何结果文件。\n可选文件：\n`
+        + allFiles.map(f => `  ${f}`).join('\n'));
+      process.exit(1);
+    }
     if (files.length === 0) {
       console.error(`--only=${only.join(',')} 没匹配到任何文件。可选：\n` + allFiles.map(f => `  ${f}`).join('\n'));
       process.exit(1);
@@ -944,7 +1004,7 @@ async function main() {
     // 汇总只认 `.json` 结尾，所以**半截的轮次永远不会被误当成完整轮**读进去。
     // （这是被"残留子进程写出只有 5/15 个故事的文件"那次教训逼出来的。）
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const jsonPath = join(outDir, `branch_isolation_n${defs.length}_${stamp}.json`);
+    const jsonPath = join(outDir, `branch_isolation_n${defs.length}${tag ? '_' + tag : ''}_${stamp}.json`);
     const wipPath = `${jsonPath}.wip`;
     const flush = () => writeFileSync(wipPath, JSON.stringify(round, null, 2), 'utf-8');
 
@@ -981,25 +1041,53 @@ async function main() {
     allRounds.push(round);
     flush();
 
-    const complete = round.length === defs.length * arms.length;
-    if (complete) {
-      // 整轮跑完才去掉 .wip —— 汇总只读 .json，半截轮进不去
+    // 完整性判据：覆盖 ≥90% 的组合就算这一轮可用。
+    //
+    // 早先要求"一个不缺"，结果是**一次网络抖动（fetch failed）丢掉整轮 23 条好数据**。
+    // 但也不能完全不设门槛：真正的截断（比如只跑了一半）必须拦住。
+    //
+    // 取 90% 而不是"全对"，是因为失败模式是稀疏且随机的（重试 3 次仍失败的网络错误），
+    // 不是系统性的。而且缺口不会被藏起来 —— 下面会把本轮缺哪几个组合**打出来**，
+    // 汇总报告里也会逐轮标注覆盖数，所以"少了一条"永远是可见的，不是静默的。
+    const expected = defs.length * arms.length;
+    const coverage = round.length / expected;
+    const missing = defs.flatMap(d => arms
+      .filter(a => !round.some(x => x.story === d.story && x.isolation === a))
+      .map(a => `${d.story}/${a}`));
+
+    if (coverage >= 0.9) {
       renameSync(wipPath, jsonPath);
-      console.log(`\n💾 第 ${r} 轮已完整落盘：${jsonPath}`);
+      console.log(`\n💾 第 ${r} 轮已落盘：${jsonPath}`);
+      console.log(`   覆盖 ${round.length}/${expected} 个组合`);
+      if (missing.length > 0) {
+        console.log(`   ⚠️ 缺：${missing.join('、')}（该组合本轮无数据，汇总时自动跳过）`);
+      }
     } else {
-      console.warn(`\n⚠️ 第 ${r} 轮只完成 ${round.length}/${defs.length * arms.length} 个组合，`
-        + `保留为 ${wipPath}\n   不会被汇总纳入（汇总只认 .json）。`);
+      console.warn(`\n⚠️ 第 ${r} 轮只完成 ${round.length}/${expected}（${(coverage * 100).toFixed(0)}% < 90%），`
+        + `视为截断，保留为 ${wipPath}\n   不会被汇总纳入（汇总只认 .json）。`);
     }
   }
 
-  // 汇总所有轮
+  // 汇总所有轮。
+  //
+  // ⚠️ 默认**只汇总本次设计产生的文件**，不是目录下所有 `branch_isolation_*.json`。
+  // 这条默认值是踩过坑才有的：早先没带 --only 时会把 n5 / n12(v1) / n12_v2 三种
+  // 不同设计的数据全捞进来平均，报告里出现"10 轮实验"、逐故事表还混着旧版的分支
+  // 标签 —— 看着像正常报告，其实是把三代设计平均在了一起。
+  // 设计一变，文件名里的 n{组数} 和 tag 就变；用它们当过滤器才安全。
+  const runPrefix = `branch_isolation_n${defs.length}${tag ? '_' + tag : ''}_`;
   const allFiles = readdirSync(outDir)
     .filter(f => f.startsWith('branch_isolation_') && f.endsWith('.json'))
     .map(f => ({ f, t: statSync(join(outDir, f)).mtimeMs }))
     .sort((a, b) => a.t - b.t)
     .map(x => x.f);
-  // 本次跑的分叉组数决定默认只看哪一批：5 组与 12 组混在一起平均是错的
-  const files = only.length > 0 ? allFiles.filter(f => only.some(o => f.includes(o))) : allFiles;
+  const scoped = allFiles.filter(f => f.startsWith(runPrefix));
+  const files = only.length > 0 ? allFiles.filter(f => only.some(o => f.includes(o))) : scoped;
+  if (only.length === 0) {
+    const skipped = allFiles.length - scoped.length;
+    console.log(`\n📎 汇总范围：本次设计 \`${runPrefix}*\` —— 纳入 ${scoped.length} 个文件`);
+    if (skipped > 0) console.log(`   （跳过 ${skipped} 个其它设计/组数的文件；需要时用 --only 显式指定）`);
+  }
   const loaded = files.map(f => JSON.parse(readFileSync(join(outDir, f), 'utf-8')) as RunResult[]);
   const mdPath = join(outDir, outName);
   writeFileSync(mdPath, buildMarkdown(loaded, files), 'utf-8');

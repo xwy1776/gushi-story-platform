@@ -69,3 +69,7 @@ prisma.config.ts
 
 # 进行中的实验轮（跑完才 rename 成 .json；半截轮不得进汇总，也不该进仓库）
 *.wip
+
+# 跑批日志与独立启动脚本
+logs/
+run_v2.bat

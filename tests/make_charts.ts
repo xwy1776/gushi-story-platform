@@ -26,6 +26,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'fs';
 import { join, resolve, basename } from 'path';
+import { analyzePairedDiff, pairedDiffs } from './paired-stats';
 
 const OUT_DIR = resolve(__dirname, '..', 'Docs', 'ablation');
 
@@ -328,34 +329,16 @@ function chartPairedDiff(records: ResultRecord[]): string {
   const plotW = W - PAD_L - PAD_R;
   const plotH = H - PAD_T - PAD_B;
 
-  // 配对：同一 (轮次, 故事) 下，处理档 − none
-  const base = new Map<string, number>();
-  for (const r of records) {
-    if (r.arm === 'none') base.set(`${r.round}|${r.story}`, r.total);
-  }
-
-  const rows = SERIES.filter((s) => s.key !== 'none').map((s) => {
-    const diffs: number[] = [];
-    for (const r of records) {
-      if (r.arm !== s.key) continue;
-      const b = base.get(`${r.round}|${r.story}`);
-      if (b !== undefined) diffs.push(r.total - b);
-    }
-    const st = stats(diffs);
-    // df≈24 下双尾 p<0.05 的临界值约 2.064
-    const t = st.se > 0 ? st.mean / st.se : 0;
-    return {
-      s,
-      st,
-      t,
-      sig: Math.abs(t) > 2.064,
-      better: diffs.filter((d) => d > 0).length,
-      worse: diffs.filter((d) => d < 0).length,
-      n: diffs.length,
-    };
+  // 配对：同一 (轮次, 故事) 下，处理档 − none。
+  // 比较次数 = 处理档个数，交给 analyzePairedDiff 做 Bonferroni 校正 ——
+  // 不做校正的话，三个比较里最容易「碰巧显著」的那个会被误报成显著。
+  const treatArms = SERIES.filter((s) => s.key !== 'none');
+  const rows = treatArms.map((s) => {
+    const diffs = pairedDiffs(records, s.key, 'none');
+    return { s, pr: analyzePairedDiff(diffs, treatArms.length) };
   });
 
-  const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.st.mean) + r.st.ci95)) * 1.05;
+  const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.pr.mean) + r.pr.ci)) * 1.05;
   const x = scale([-maxAbs, maxAbs], [PAD_L, PAD_L + plotW]);
   const bandH = plotH / rows.length;
   const zeroX = x(0);
@@ -375,14 +358,14 @@ function chartPairedDiff(records: ResultRecord[]): string {
     );
   }
 
-  const marks = rows.map(({ s, st, t, sig, better, worse, n }, i) => {
+  const marks = rows.map(({ s, pr }, i) => {
     const cy = PAD_T + bandH * (i + 0.5);
     const cx = `var(--s-${s.key})`;
-    const xLo = x(st.mean - st.ci95);
-    const xHi = x(st.mean + st.ci95);
-    const xm = x(st.mean);
+    const xLo = x(pr.mean - pr.ci);
+    const xHi = x(pr.mean + pr.ci);
+    const xm = x(pr.mean);
     return [
-      // 水平误差棒（95% CI）+ 两端小帽
+      // 水平误差棒（口径见下）+ 两端小帽
       `<line x1="${xLo}" y1="${cy}" x2="${xHi}" y2="${cy}" stroke="${cx}" stroke-width="2" stroke-linecap="round"/>`,
       `<line x1="${xLo}" y1="${cy - 6}" x2="${xLo}" y2="${cy + 6}" stroke="${cx}" stroke-width="2" stroke-linecap="round"/>`,
       `<line x1="${xHi}" y1="${cy - 6}" x2="${xHi}" y2="${cy + 6}" stroke="${cx}" stroke-width="2" stroke-linecap="round"/>`,
@@ -390,13 +373,13 @@ function chartPairedDiff(records: ResultRecord[]): string {
       `<circle cx="${xm}" cy="${cy}" r="5" fill="${cx}" class="ring"/>`,
       // 行标签：档位名
       `<text x="${PAD_L - 12}" y="${cy - 2}" class="tick tick-end row-label">${esc(s.zh)}</text>`,
-      // 显著性判读 —— 只看均值会误判，故同时给出胜负样本数（见 title）
-      `<text x="${PAD_L - 12}" y="${cy + 13}" class="tick tick-end ${sig ? 'sig-yes' : 'sig-no'}">${
-        sig ? `${fmt(t, 2)} 显著` : `${fmt(t, 2)} 不显著`
-      }</text>`,
+      // 显著性：标出 p 值而不只是 say-so —— 读者能看到判定依据
+      `<text x="${PAD_L - 12}" y="${cy + 13}" class="tick tick-end ${pr.sig ? 'sig-yes' : 'sig-no'}">p=${
+        pr.p < 0.001 ? '<0.001' : fmt(pr.p, 3)
+      } ${pr.sig ? '显著' : '不显著'}</text>`,
       // 值标签在误差棒右端外侧
-      `<text x="${xHi + 9}" y="${cy + 4}" class="tick tick-start val-strong">${st.mean >= 0 ? '+' : ''}${fmt(st.mean)}</text>`,
-      `<title>${esc(s.zh)}：差值 ${fmt(st.mean)}，95% CI ±${fmt(st.ci95)}，t=${fmt(t, 2)}；${better} 优于 / ${worse} 劣于基线（共 ${n}）</title>`,
+      `<text x="${xHi + 9}" y="${cy + 4}" class="tick tick-start val-strong">${pr.mean >= 0 ? '+' : ''}${fmt(pr.mean)}</text>`,
+      `<title>${esc(s.zh)}：差值 ${fmt(pr.mean)}，区间 ±${fmt(pr.ci)}（校正后口径），t=${fmt(pr.t, 2)}，p=${fmt(pr.p, 4)}（Bonferroni α=${fmt(pr.alpha, 4)}，临界 t=${fmt(pr.tCrit, 2)}）；${pr.better} 优于 / ${pr.worse} 劣于基线（共 ${pr.n}）</title>`,
     ].join('');
   }).join('');
 
@@ -404,11 +387,13 @@ function chartPairedDiff(records: ResultRecord[]): string {
     `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img"`,
     ` aria-label="各处理档相对基线的配对差值及95%置信区间">`,
     // 标题从左边缘起排 —— 右对齐到 PAD_L 会因文本过长而左侧溢出
-    `<text x="0" y="16" class="cell-title tick tick-start">相对「无记忆」的配对差值（总分，95% CI）</text>`,
+    `<text x="0" y="16" class="cell-title tick tick-start">相对「无记忆」的配对差值（总分，Bonferroni 校正区间）</text>`,
     xTicks.join(''),
     zeroLine,
     marks,
-    `<text x="${PAD_L}" y="${H - 8}" class="tick tick-start">误差棒跨越 0 ⇒ 该档位与基线无统计差别</text>`,
+    // 误差棒口径必须写清楚：它用的是**校正后** α 的临界 t（≈2.57），
+    // 不是常见的 1.96 —— 否则读者会拿它当 95% CI 去对照，得出相反结论。
+    `<text x="${PAD_L}" y="${H - 8}" class="tick tick-start">误差棒为 Bonferroni 校正后区间（临界 t≈2.57，非 95%）；跨 0 ⇔ 与基线无统计差别</text>`,
     `</svg>`,
   ].join('');
 }
@@ -466,19 +451,11 @@ function tableByRound(records: ResultRecord[], rounds: string[]): string {
 function buildHtml(records: ResultRecord[], meta: Record<string, unknown>, srcName: string): string {
   const rounds = [...new Set(records.map((r) => r.round))];
 
-  // 结论数字
-  const base = new Map<string, number>();
-  for (const r of records) if (r.arm === 'none') base.set(`${r.round}|${r.story}`, r.total);
-  const sigCount = SERIES.filter((s) => s.key !== 'none').filter((s) => {
-    const d: number[] = [];
-    for (const r of records) {
-      if (r.arm !== s.key) continue;
-      const b = base.get(`${r.round}|${r.story}`);
-      if (b !== undefined) d.push(r.total - b);
-    }
-    const st = stats(d);
-    return Math.abs(st.se > 0 ? st.mean / st.se : 0) > 2.064;
-  }).length;
+  // 结论数字：经过 Bonferroni 校正后仍显著的档位数
+  const treatArms = SERIES.filter((s) => s.key !== 'none');
+  const sigCount = treatArms.filter(
+    (s) => analyzePairedDiff(pairedDiffs(records, s.key, 'none'), treatArms.length).sig,
+  ).length;
 
   const legend = SERIES.map((s) =>
     `<span class="legend-item"><span class="key" style="background:var(--s-${s.key})"></span>${esc(s.zh)}</span>`,
@@ -629,8 +606,10 @@ function buildHtml(records: ResultRecord[], meta: Record<string, unknown>, srcNa
 
   <div class="callout">
     <p><strong>怎么读这张报告。</strong>四维各 1–5 分，总分 = 四维之和（4–20）。</p>
-    <p>图 3 是重点：三个处理档相对「无记忆」的配对差值里，只有 <strong>${sigCount}</strong> 个档位的
-       95% 置信区间排除了 0。误差棒跨过「无差异」线，就意味着<b>该档位与基线没有统计差别</b>。</p>
+    <p>图 3 是重点：三个处理档相对「无记忆」做配对比较，属<b>多重比较</b>，
+       故按 <strong>Bonferroni 校正</strong>（3 次比较，α = 0.05/3 ≈ 0.0167，df=24 下临界 t ≈ 2.57）。
+       校正后达到显著的档位数：<strong>${sigCount}</strong>。</p>
+    <p>读图两个判据任一成立即「无差别」：误差棒跨过 0 线，或 p 值大于校正后的 α。</p>
     <p>图 2 是限制条件：如果同一档位在不同轮次之间的起伏，比档位之间的差距还大，
        那么<b>任何档位排序都不成立</b>——这正是消融实验先前踩过的坑。</p>
   </div>
@@ -650,8 +629,9 @@ function buildHtml(records: ResultRecord[], meta: Record<string, unknown>, srcNa
   </div>
 
   <div class="card">
-    <h2>图 3 · 相对基线的配对差值（含 95% 置信区间）</h2>
-    <p class="desc">配对口径：同一轮次、同一故事下，处理档总分 − 无记忆档总分。</p>
+    <h2>图 3 · 相对基线的配对差值（含 Bonferroni 校正区间）</h2>
+    <p class="desc">配对口径：同一轮次、同一故事下，处理档总分 − 无记忆档总分。
+       误差棒用<b>校正后</b>的临界 t（≈2.57）而非 1.96，与显著性判定保持同一口径。</p>
     ${chartPairedDiff(records)}
   </div>
 

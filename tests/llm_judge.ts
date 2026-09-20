@@ -40,6 +40,7 @@ import 'dotenv/config';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'fs';
 import { join, resolve, basename } from 'path';
 import { extractJsonFromAI } from '../src/lib/ai-client';
+import { analyzePairedDiff, pairedDiffs } from './paired-stats';
 import {
   JUDGE_STORIES,
   findStory,
@@ -117,6 +118,8 @@ function parseArgs() {
     concurrency: Math.max(1, parseInt(get('concurrency', '4'), 10)),
     /** 只打印 prompt 不调 API */
     dryRun: argv.includes('--dry-run'),
+    /** 复用最新一次打分结果重新生成报告，不调 API（改报告格式时用） */
+    reportOnly: argv.includes('--report-only'),
     /** 校验 story-fixtures 与 ab_ablation.ts 是否同步 */
     checkFixtures: argv.includes('--check-fixtures'),
     /** 输出文件名前缀 */
@@ -563,6 +566,45 @@ function buildMarkdown(results: JudgeResult[], args: Args, model: string): strin
     L.push('');
   }
 
+  // 配对分析：回答「哪个档位真的更好」——描述性均值会骗人，配对检验不会
+  const treatArms = arms.filter((a) => a !== 'none');
+  if (arms.includes('none') && treatArms.length > 0) {
+    L.push(heading('配对分析（各处理档 vs 基线）'), '');
+    L.push(
+      '配对口径：**同一轮次、同一故事**下，处理档总分 − 无记忆档总分。',
+      '同一故事在不同档位间差异大，配对可把故事间差异控制掉。',
+      '',
+      `因属多重比较，按 **Bonferroni 校正**：k=${treatArms.length} ⇒ α = 0.05/${treatArms.length} = ${(0.05 / treatArms.length).toFixed(4)}。`,
+      '**不做校正是常见错误** —— 比较越多，越容易有一个「碰巧显著」。',
+      '',
+    );
+    const analysed = treatArms.map((arm) => ({
+      arm,
+      pr: analyzePairedDiff(pairedDiffs(results, arm, 'none'), treatArms.length),
+    }));
+
+    L.push('| 对比 | n | 差值均值 | 校正区间 | t | p 值 | 校正后 | 优于 / 劣于基线 |');
+    L.push('|---|---|---|---|---|---|---|---|');
+    for (const { arm, pr } of analysed) {
+      L.push(
+        `| ${arm} − none | ${pr.n} | ${pr.mean >= 0 ? '+' : ''}${pr.mean.toFixed(2)} | ` +
+          // 用校正后口径的区间（tCrit×se），与 sig 列同一标准；
+          // 若这里写未校正的 95% CI，会出现「区间不跨 0 却标不显著」的自相矛盾
+          `±${pr.ci.toFixed(2)} | ${pr.t.toFixed(2)} | ${pr.p.toFixed(4)} | ` +
+          `${pr.sig ? '**显著**' : '不显著'} | ${pr.better} / ${pr.worse} |`,
+      );
+    }
+    L.push('');
+    const { tCrit, df, alpha } = analysed[0].pr;
+    L.push(
+      `> 校正后 α = ${alpha.toFixed(4)}，临界 t = ${tCrit.toFixed(3)}（df=${df}）。`,
+      `> 若不校正则用 α=0.05 的临界 t≈2.06 —— ${analysed.some((a) => a.pr.p < 0.05 && !a.pr.sig)
+        ? '本项目正属于这种情况：未校正会误报显著。'
+        : '本项目两种口径结论一致。'}`,
+      '',
+    );
+  }
+
   // 跨轮汇总：同一档位在不同轮次的表现是否稳定
   // 消融实验的教训是「轮间差大于档间差」会让结论翻转，所以这一节是判断
   // 打分器给出的排序能不能站住的关键 —— 单轮好看不算数，要看轮间是否一致。
@@ -750,8 +792,43 @@ function filterTargets(targets: JudgeTarget[], args: Args): JudgeTarget[] {
   return targets;
 }
 
+/** 找最新的 judge_results_*.json */
+function latestResultsFile(): string {
+  const files = readdirSync(OUT_DIR)
+    .filter((f) => f.startsWith('judge_results_') && f.endsWith('.json'))
+    .sort();
+  if (files.length === 0) {
+    throw new Error(`没找到 judge_results_*.json（${OUT_DIR}）。请先跑一次打分。`);
+  }
+  return join(OUT_DIR, files[files.length - 1]);
+}
+
 async function main() {
   const args = parseArgs();
+
+  // --report-only：复用已有结果重新出报告，不调 API。
+  // 改报告排版/统计口径时用，避免为了改一个表格重跑上百次接口。
+  if (args.reportOnly) {
+    const src = latestResultsFile();
+    const data = JSON.parse(readFileSync(src, 'utf-8')) as {
+      meta?: { model?: string; repeats?: number };
+      results: JudgeResult[];
+    };
+    if (!Array.isArray(data.results) || data.results.length === 0) {
+      throw new Error(`${src} 里没有 results。`);
+    }
+    // 报告里要写「每条采样几次」，以来源文件记录的为准
+    if (data.meta?.repeats) args.repeats = data.meta.repeats;
+    const model = data.meta?.model ?? env('AI_JUDGE_MODEL', env('AI_MODEL', 'deepseek-chat'));
+    const stamp = formatTimestamp(new Date());
+    const mdPath = join(OUT_DIR, `${args.outPrefix}_report_${stamp}.md`);
+    mkdirSync(OUT_DIR, { recursive: true });
+    writeFileSync(mdPath, buildMarkdown(data.results, args, model), 'utf-8');
+    console.log('已复用已有结果重新生成报告（未调用 API）');
+    console.log(`来源：${src}`);
+    console.log(`报告：${mdPath}`);
+    return;
+  }
 
   // --check-fixtures：只校验 fixture 与 ab_ablation.ts 的同步性
   if (args.checkFixtures) {

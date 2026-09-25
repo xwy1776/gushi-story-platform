@@ -30,6 +30,10 @@ interface Row {
   story: string;
   arm: string;
   segments: string[];
+  promptLens?: number[];
+  stateObjects?: number;
+  graphNodes?: number;
+  charCoverage?: number;
 }
 
 // ============================================================================
@@ -658,6 +662,46 @@ lines.push('');
 lines.push('> 给论文的净结论：**合并结论可以写，但必须同时给出（a）两批的分解结果、');
 lines.push('> （b）新批的区间而非「不显著」三个字、（c）批次差异本身也只有边缘证据。**');
 lines.push('> 把「效应集中在第一批」当成一个**待解释的异质性**如实报告，比只报合并 p 值安全。');
+lines.push('');
+
+// ---- §9 观测量（s30）-------------------------------------------------------
+lines.push('## 9. 观测量（30 故事）');
+lines.push('');
+lines.push('论文 §2.4 用到的那几个观测量，按同样口径从 s30 的 JSON 重算一遍。');
+lines.push('「轮均±轮间标准差」中的标准差是**三轮均值之间的**，不是跨故事的。');
+lines.push('');
+const armRows = (arm: string): Row[] => s30[0].rows.filter((r) => r.arm === arm);
+const promptMean = (r: Row): number => (r.promptLens && r.promptLens.length > 0 ? mean(r.promptLens) : NaN);
+const perRoundField = (arm: string, pick: (r: Row) => number): number[] =>
+  s30.map(({ rows }) => mean(rows.filter((r) => r.arm === arm).map(pick)));
+const asCells = (perRound: number[], decimals = 1): { text: string; m: number } => {
+  const m = mean(perRound);
+  const sd = perRound.length > 1 ? Math.sqrt(variance(perRound)) : 0;
+  return { text: `${m.toFixed(decimals)} ± ${sd.toFixed(decimals)}`, m };
+};
+lines.push('| 档位 | Prompt 长度（字符） | 相对基线 | 状态表对象 | 角色覆盖率 | 图谱节点数 |');
+lines.push('|------|------:|------:|------:|------:|------:|');
+const promptBase = mean(perRoundField('none', promptMean));
+for (const arm of ARMS) {
+  const p = asCells(perRoundField(arm, promptMean), 0);
+  const s = asCells(perRoundField(arm, (r) => r.stateObjects ?? NaN));
+  const c = asCells(perRoundField(arm, (r) => r.charCoverage ?? NaN), 3);
+  const g = asCells(perRoundField(arm, (r) => r.graphNodes ?? NaN), 0);
+  const delta = arm === 'none' ? '—' : `+${(p.m - promptBase).toFixed(0)} (+${(((p.m - promptBase) / promptBase) * 100).toFixed(0)}%)`;
+  lines.push(`| \`${arm}\` | ${p.text} | ${delta} | ${s.text} | ${c.text} | ${g.text} |`);
+}
+lines.push('');
+lines.push('> ⚠️ **图谱节点数这一列仍然不可用于档位对比**：`knowledgeGraph.getStats()` 返回的是整个图谱');
+lines.push('> 文件的节点数、**不按 `branchId` 过滤**（[knowledge-graph.ts:851](../../src/lib/knowledge-graph.ts#L851)），');
+lines.push('> 脚本按 `none→state→graph→both` 顺序跑，后跑的档位天然看到更大的图。这条结论在 s30 上不变。');
+lines.push('');
+lines.push('> 状态表对象数是一份**有效的控制组证据**：不注入的 `none` / `graph` 两档应当恒等于种子数据量，');
+lines.push('> 注入的 `state` / `both` 才会增长。若 `none` 档三轮之间出现波动，说明分支隔离漏了，');
+lines.push('> 前面的主结果就不能用。');
+lines.push('');
+const nonePerRound = perRoundField('none', (r) => r.stateObjects ?? NaN);
+lines.push(`实测 ` + '`none`' + ` 档三轮的状态表对象数：${nonePerRound.map((v) => v.toFixed(1)).join(' / ')}`
+  + `（${new Set(nonePerRound.map((v) => v.toFixed(3))).size === 1 ? '三轮逐轮完全相同 → 分支隔离生效' : '三轮之间存在差异 → ⚠️ 需要排查'}）。`);
 lines.push('');
 
 const out = join(DOCS, 's30_robustness.md');

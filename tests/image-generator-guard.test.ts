@@ -16,7 +16,7 @@
  *
  * 运行：npx vitest run tests/image-generator-guard.test.ts
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import {
   extractSceneDescriptionsWithAI,
   generateImagesForSegment,
@@ -285,7 +285,7 @@ describe('extractSceneDescriptionsWithAI 守卫链（校验→重试→重写→
 // ─── 生成端守卫终检（生图 API 边界） ──────────────────────────────────
 
 describe('generateImagesForSegment 守卫终检（低于阈值的 prompt 绝不进入生图 API）', () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let fetchMock: Mock<any[], Promise<any>>;
 
   beforeEach(() => {
     process.env.AI_IMAGE_API_KEY = 'test-key';

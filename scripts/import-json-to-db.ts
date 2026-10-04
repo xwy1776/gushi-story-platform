@@ -7,6 +7,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 import fs from "fs";
 import path from "path";
+import { splitLegacyTraitFields } from "../src/lib/character-fields";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 
@@ -232,6 +233,11 @@ async function main() {
         continue;
       }
 
+      // B2: 归一化旧前缀 traits（appearance:/canonical:）到结构化字段
+      const { cleanTraits, legacyAppearance, legacyCanonicalName } = splitLegacyTraitFields(c.traits);
+      const appearance = c.appearance || legacyAppearance || "";
+      const canonicalName = c.canonicalName || legacyCanonicalName || "";
+
       await prisma.character.upsert({
         where: { id: c.id },
         update: {
@@ -240,11 +246,11 @@ async function main() {
           role: c.role || "supporting",
           speechPatterns: c.speechPatterns || "",
           coreMotivation: c.coreMotivation || "",
-          traits: c.traits || [],
+          traits: cleanTraits as any[],
           relationships: c.relationships || [],
           stateHistory: c.stateHistory || [],
-          appearance: c.appearance || "",
-          canonicalName: c.canonicalName || "",
+          appearance,
+          canonicalName,
         },
         create: {
           id: c.id,
@@ -253,11 +259,11 @@ async function main() {
           role: c.role || "supporting",
           speechPatterns: c.speechPatterns || "",
           coreMotivation: c.coreMotivation || "",
-          traits: c.traits || [],
+          traits: cleanTraits as any[],
           relationships: c.relationships || [],
           stateHistory: c.stateHistory || [],
-          appearance: c.appearance || "",
-          canonicalName: c.canonicalName || "",
+          appearance,
+          canonicalName,
           storyId,
         },
       });

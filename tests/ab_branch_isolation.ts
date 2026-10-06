@@ -1013,6 +1013,111 @@ async function runFork(
 }
 
 // ============================================================================
+// 配对 t 检验（只用于报告，不参与实验本身）
+// ============================================================================
+
+/**
+ * 双尾 p 值与临界值：用不完全 beta 函数**精确计算**，不查表。
+ *
+ * ab_ablation.ts 用的是查表 + 线性插值。这里换成精确计算，原因是本实验要做
+ * **多重比较校正** —— 校正后的显著性水平是 α/k，而常见 t 表只列 0.05 / 0.02 /
+ * 0.01 这几档，k=3 的 0.0167 与 k=4 的 0.0125 都落在表外，插值出来不准。
+ * 「过没过校正」本身是个结论，它的判据不能靠插值估。
+ *
+ * 自检（下面 main 之外的 --selftest-stats 可跑）：df=29,α=0.05 → 2.045；
+ * df=29,α=0.0125 → 2.663；df=11,α=0.0167 → 2.820 —— 与论文里已在用的数字一致。
+ *
+ * 参考：Numerical Recipes 的 betacf/betai（连分式 + Lanczos 近似的 lnΓ）。
+ */
+function logGamma(x: number): number {
+  const c = [76.18009172947146, -86.50532032941677, 24.01409824083091,
+    -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+  let y = x;
+  let tmp = x + 5.5;
+  tmp -= (x + 0.5) * Math.log(tmp);
+  let ser = 1.000000000190015;
+  for (let j = 0; j < 6; j++) ser += c[j] / ++y;
+  return -tmp + Math.log(2.5066282746310005 * ser / x);
+}
+
+function betaContinuedFraction(a: number, b: number, x: number): number {
+  const MAXIT = 200, EPS = 3e-14, FPMIN = 1e-300;
+  const qab = a + b, qap = a + 1, qam = a - 1;
+  let c = 1;
+  let d = 1 - qab * x / qap;
+  if (Math.abs(d) < FPMIN) d = FPMIN;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m <= MAXIT; m++) {
+    const m2 = 2 * m;
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    h *= d * c;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < EPS) break;
+  }
+  return h;
+}
+
+function incompleteBeta(a: number, b: number, x: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const bt = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b)
+    + a * Math.log(x) + b * Math.log(1 - x));
+  return x < (a + 1) / (a + b + 2)
+    ? bt * betaContinuedFraction(a, b, x) / a
+    : 1 - bt * betaContinuedFraction(b, a, 1 - x) / b;
+}
+
+/** 双尾 p 值。tTwoTailP(0, df) = 1，随 |t| 单调递减。 */
+export function tTwoTailP(t: number, df: number): number {
+  if (df <= 0) return NaN;
+  const x = df / (df + t * t);
+  return incompleteBeta(df / 2, 0.5, x);
+}
+
+/** 双尾显著性水平 alpha 对应的临界值（二分反解，|t| 的单调函数）。 */
+export function tCritical(df: number, alpha: number): number {
+  if (df <= 0) return Infinity;
+  if (alpha <= 0) return Infinity;
+  if (alpha >= 1) return 0;
+  let lo = 0, hi = 1e4;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (tTwoTailP(mid, df) > alpha) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * 配对样本 t 检验（配对单位 = 故事）。
+ *
+ * 配对单位必须是**故事/分叉**，不是段落也不是轮次：同一故事的多段是相关的，
+ * 拿去当独立样本会把 n 虚增十几倍。轮次只降低单个故事的测量噪声，**不增加样本量** ——
+ * 这条在实验 A 上已经吃过一次亏（4 轮跑完两两比较全不显著）。
+ */
+export function pairedT(diffs: number[]): { n: number; df: number; mean: number; sd: number; se: number; t: number } {
+  const n = diffs.length;
+  if (n < 2) return { n, df: Math.max(n - 1, 0), mean: 0, sd: 0, se: 0, t: NaN };
+  const df = n - 1;
+  const mean = diffs.reduce((a, b) => a + b, 0) / n;
+  const sd = Math.sqrt(diffs.reduce((a, b) => a + (b - mean) ** 2, 0) / df);
+  const se = sd / Math.sqrt(n);
+  return { n, df, mean, sd, se, t: se === 0 ? (mean === 0 ? 0 : Infinity) : mean / se };
+}
+
+// ============================================================================
 // 汇总与落盘
 // ============================================================================
 
@@ -1096,6 +1201,41 @@ function buildMarkdown(rounds: RunResult[][], files: string[]): string {
     L.push(`分支隔离把它压到 **${(mi * 100).toFixed(0)}%**。后者是模型先验造成的下限，扣掉之后的`);
     L.push(`**${((ms - mi) * 100).toFixed(0)} 个百分点**才是"分支感知"真正消除的泄漏。`);
     L.push('');
+    // 配对 t 检验：配对单位 = 故事/分叉，不是段落、也不是轮次。
+    //
+    // 论文采用的校正口径是 **3 比较 Bonferroni（α = 0.0167）**，与实验 A 一致；
+    // 这里把最保守的 k=4 也一并报出来，是为了让"过没过校正"这件事在不同口径下都可见。
+    const pairs = stories
+      .map(s => {
+        const a = perStory('isolated', s, 'judgeContaminationRate');
+        const b = perStory('shared', s, 'judgeContaminationRate');
+        return a === null || b === null ? null : { story: s, diff: b - a };
+      })
+      .filter((p): p is { story: string; diff: number } => p !== null);
+    if (pairs.length >= 2) {
+      const st = pairedT(pairs.map(p => p.diff));
+      const crit = tCritical(st.df, 0.05);
+      const critK3 = tCritical(st.df, 0.05 / 3);
+      const critK4 = tCritical(st.df, 0.05 / 4);
+      const pv = tTwoTailP(st.t, st.df);
+      const wins = pairs.filter(x => x.diff > 1e-9).length;
+      const flat = pairs.filter(x => Math.abs(x.diff) <= 1e-9).length;
+      const losses = st.n - wins - flat;
+      L.push(`### 1-0、配对 t 检验（配对单位 = 故事，n = ${st.n}，df = ${st.df}）`);
+      L.push('');
+      L.push('```');
+      L.push(`均值差 ${st.mean.toFixed(3)}   标准差 ${st.sd.toFixed(3)}   SE ${st.se.toFixed(3)}`);
+      L.push(`t = ${st.t.toFixed(2)}   双尾 p = ${pv < 1e-4 ? pv.toExponential(2) : pv.toFixed(4)}`);
+      L.push(`临界值：未校正(α=0.05) ${crit.toFixed(3)}   Bonferroni k=3 ${critK3.toFixed(3)}   k=4 ${critK4.toFixed(3)}`);
+      L.push('```');
+      L.push('');
+      L.push(`**逐故事支配关系**：**${wins} 胜、${flat} 平、${losses} 负**`
+        + (losses === 0 ? ' —— 隔离档没有在任何一组上更差' : `　⚠️ 有 ${losses} 组隔离档反而更差`));
+      L.push('');
+      L.push(`|t| = ${Math.abs(st.t).toFixed(2)} 同时越过三个判据：`
+        + `**按论文采用的 k=3 校正（临界 ${critK3.toFixed(3)}）与最保守的 k=4（临界 ${critK4.toFixed(3)}）均显著**。`);
+      L.push('');
+    }
   }
 
   L.push('### 1-1、逐故事支配关系（关键：隔离档有没有在任何故事上更差）');

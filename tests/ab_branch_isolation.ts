@@ -10,8 +10,11 @@
  * ── 实验设计 ──────────────────────────────────────────────────────
  * 对每个故事造一个分叉点，两条**设定互斥**的分支 A / B：
  *
- *   分支 A：刘备投奔公孙瓒，借兵讨董
- *   分支 B：刘备投奔曹操，会盟讨董
+ *   分支 A：刘备向公孙瓒借兵，屯驻北平
+ *   分支 B：刘备向陶谦借兵，屯驻徐州
+ *
+ * （v1 的两侧里总有一侧是史实，模型的**先验**会替记忆答题；v2 起 20 组分叉
+ *   的两侧一律不是标准历史，分支只能由注入的记忆决定。）
  *
  * 只在**分支 A** 上续写 5 段。两档对照：
  *
@@ -38,8 +41,11 @@
  *   # 先跑小样本看信号（约 20 次生成，3-5 分钟）
  *   npx tsx tests/ab_branch_isolation.ts --stories=2 --segments=5
  *
- *   # 正式跑：5 组冲突分支 × 2 档 × 5 段 × 3 轮
- *   npx tsx tests/ab_branch_isolation.ts --stories=5 --segments=5 --rounds=3
+ *   # 扩样后只跑新增的 8 组（分叉是追加在末尾的：0..11 是原有 12 组，12..19 是新增）
+ *   npx tsx tests/ab_branch_isolation.ts --from=12 --stories=8 --rounds=1 --segments=2 --tag=pilot
+ *
+ *   # 正式跑：20 组冲突分支 × 2 档 × 5 段 × 3 轮
+ *   npx tsx tests/ab_branch_isolation.ts --stories=20 --segments=5 --rounds=3
  *
  * 结果输出到 Docs/ablation/branch_isolation_*.json 与 .md
  */
@@ -456,6 +462,268 @@ const FORKS: ForkDef[] = [
       factsForJudge: '东晋朝廷任命谢石为全军统帅，由他统领北府兵迎击前秦大军。',
     },
   },
+  // ── 扩样 8 组：12 → 20 ────────────────────────────────────────────────
+  // 设计原则与 v2 一致：**两侧都不是标准历史**，模型对"接下来该发生什么"没有先验，
+  // 分支只能由注入的记忆决定。三条自我约束：
+  //   ① 甲分支取**更合情理的那一侧**（仍是史书上没发生的事），乙分支取更意外的一侧。
+  //      这样甲侧写起来顺、先验帮不上乙侧的忙，乙侧一旦出现就是记忆泄漏。
+  //   ② 标记词避开"题材常识"（同 v2 的踩坑记录），且绝不写进 opener（自检会硬拦）。
+  //   ③ 3 组取自第一批剩下的 3 个故事（负荆请罪／商鞅立木／岳飞班师），
+  //      使第一批 15 个故事**全部**有分叉；另 5 组取自第二批。
+  {
+    story: '负荆请罪',
+    forkPoint: '将相既和，赵王决意对外用兵，先取一处',
+    branchA: {
+      label: '东出伐齐，取平陆',
+      states: [
+        { id: 'fa_lxr', type: 'character', name: '蔺相如', properties: { location: '邯郸', status: '上卿', goal: '东出伐齐' } },
+        { id: 'fa_lp', type: 'character', name: '廉颇', properties: { isAlive: 'true', location: '平陆', status: '主将', goal: '攻拔平陆' } },
+        { id: 'fa_ev', type: 'event', name: '平陆之役', properties: { result: '赵军东出，拔齐之平陆', location: '平陆' } },
+      ],
+      edges: [
+        { from: '廉颇', to: '蔺相如', type: 'ally_of' },
+        { from: '蔺相如', to: '平陆', type: 'involves' },
+      ],
+      markers: ['平陆'],
+      factsForJudge: '赵国决意东出伐齐，廉颇为将攻拔齐国的平陆，蔺相如在邯郸居中调度，二人同心。',
+    },
+    branchB: {
+      label: '南出伐魏，取邺城',
+      states: [
+        { id: 'fb_lxr', type: 'character', name: '蔺相如', properties: { location: '邯郸', status: '上卿', goal: '南出伐魏' } },
+        { id: 'fb_lp', type: 'character', name: '廉颇', properties: { isAlive: 'true', location: '邺城', status: '主将', goal: '攻拔邺城' } },
+        { id: 'fb_ev', type: 'event', name: '邺城之役', properties: { result: '赵军南出，拔魏之邺城', location: '邺城' } },
+      ],
+      edges: [
+        { from: '廉颇', to: '蔺相如', type: 'ally_of' },
+        { from: '蔺相如', to: '邺城', type: 'involves' },
+      ],
+      markers: ['邺城'],
+      factsForJudge: '赵国决意南出伐魏，廉颇为将攻拔魏国的邺城，蔺相如在邯郸居中调度，二人同心。',
+    },
+  },
+  {
+    story: '商鞅立木',
+    forkPoint: '新法既颁，须择一郡先行推行，以观其效',
+    branchA: {
+      label: '先于陇西推行',
+      states: [
+        { id: 'fa_sy', type: 'character', name: '商鞅', properties: { location: '陇西', status: '左庶长', goal: '推行新法' } },
+        { id: 'fa_xg', type: 'character', name: '秦孝公', properties: { isAlive: 'true', location: '咸阳', status: '国君', stance: '支持变法' } },
+        { id: 'fa_ev', type: 'event', name: '陇西行法', properties: { result: '新法先行于陇西郡推行', location: '陇西' } },
+      ],
+      edges: [
+        { from: '商鞅', to: '秦孝公', type: 'ally_of' },
+        { from: '商鞅', to: '陇西', type: 'involves' },
+      ],
+      markers: ['陇西'],
+      factsForJudge: '商鞅主持变法，新法先行在陇西郡推行，秦孝公在咸阳支持，陇西是变法的第一个试点。',
+    },
+    branchB: {
+      label: '先于上郡推行',
+      states: [
+        { id: 'fb_sy', type: 'character', name: '商鞅', properties: { location: '上郡', status: '左庶长', goal: '推行新法' } },
+        { id: 'fb_xg', type: 'character', name: '秦孝公', properties: { isAlive: 'true', location: '咸阳', status: '国君', stance: '支持变法' } },
+        { id: 'fb_ev', type: 'event', name: '上郡行法', properties: { result: '新法先行于上郡推行', location: '上郡' } },
+      ],
+      edges: [
+        { from: '商鞅', to: '秦孝公', type: 'ally_of' },
+        { from: '商鞅', to: '上郡', type: 'involves' },
+      ],
+      markers: ['上郡'],
+      factsForJudge: '商鞅主持变法，新法先行在上郡推行，秦孝公在咸阳支持，上郡是变法的第一个试点。',
+    },
+  },
+  {
+    story: '岳飞班师',
+    forkPoint: '大军既退，诏命未至，须先自定屯驻之地',
+    branchA: {
+      label: '退驻唐州',
+      states: [
+        { id: 'fa_yf', type: 'character', name: '岳飞', properties: { location: '唐州', status: '枢密副使', goal: '休整待命，再图北伐' } },
+        { id: 'fa_zx', type: 'character', name: '张宪', properties: { isAlive: 'true', location: '唐州', status: '部将', goal: '随军屯驻' } },
+        { id: 'fa_ev', type: 'event', name: '移屯唐州', properties: { result: '岳家军退驻唐州休整', location: '唐州' } },
+      ],
+      edges: [
+        { from: '张宪', to: '岳飞', type: 'ally_of' },
+        { from: '岳飞', to: '唐州', type: 'involves' },
+      ],
+      markers: ['唐州'],
+      factsForJudge: '岳飞班师后，岳家军退驻唐州休整，部将张宪随军屯驻，以此为基再图北伐。',
+    },
+    branchB: {
+      label: '退驻庐州',
+      states: [
+        { id: 'fb_yf', type: 'character', name: '岳飞', properties: { location: '庐州', status: '枢密副使', goal: '休整待命，再图北伐' } },
+        { id: 'fb_zx', type: 'character', name: '张宪', properties: { isAlive: 'true', location: '庐州', status: '部将', goal: '随军屯驻' } },
+        { id: 'fb_ev', type: 'event', name: '移屯庐州', properties: { result: '岳家军退驻庐州休整', location: '庐州' } },
+      ],
+      edges: [
+        { from: '张宪', to: '岳飞', type: 'ally_of' },
+        { from: '岳飞', to: '庐州', type: 'involves' },
+      ],
+      markers: ['庐州'],
+      factsForJudge: '岳飞班师后，岳家军退驻庐州休整，部将张宪随军屯驻，以此为基再图北伐。',
+    },
+  },
+  {
+    story: '胡服骑射',
+    forkPoint: '朝议既决，新制须择一地先行试行',
+    branchA: {
+      label: '先于代郡试行',
+      states: [
+        { id: 'fa_zw', type: 'character', name: '赵武灵王', properties: { location: '代郡', status: '赵君', goal: '推行胡服骑射' } },
+        { id: 'fa_fy', type: 'character', name: '肥义', properties: { isAlive: 'true', location: '代郡', status: '谋臣', goal: '主持试行' } },
+        { id: 'fa_ev', type: 'event', name: '代郡试行', properties: { result: '胡服骑射先行于代郡试行', location: '代郡' } },
+      ],
+      edges: [
+        { from: '赵武灵王', to: '肥义', type: 'ally_of' },
+        { from: '赵武灵王', to: '代郡', type: 'involves' },
+      ],
+      markers: ['代郡'],
+      factsForJudge: '赵武灵王命在代郡先行试行胡服骑射，谋臣肥义在代地主持，命军民改穿胡服、学习骑射。',
+    },
+    branchB: {
+      label: '先于九原试行',
+      states: [
+        { id: 'fb_zw', type: 'character', name: '赵武灵王', properties: { location: '九原', status: '赵君', goal: '推行胡服骑射' } },
+        { id: 'fb_fy', type: 'character', name: '肥义', properties: { isAlive: 'true', location: '九原', status: '谋臣', goal: '主持试行' } },
+        { id: 'fb_ev', type: 'event', name: '九原试行', properties: { result: '胡服骑射先行于九原试行', location: '九原' } },
+      ],
+      edges: [
+        { from: '赵武灵王', to: '肥义', type: 'ally_of' },
+        { from: '赵武灵王', to: '九原', type: 'involves' },
+      ],
+      markers: ['九原'],
+      factsForJudge: '赵武灵王命在九原先行试行胡服骑射，谋臣肥义在九原主持，命军民改穿胡服、学习骑射。',
+    },
+  },
+  {
+    story: '七擒孟获',
+    forkPoint: '大军入南中，诸郡相望，先定何处',
+    branchA: {
+      label: '先定牂牁',
+      states: [
+        { id: 'fa_zgl', type: 'character', name: '诸葛亮', properties: { location: '牂牁', status: '丞相', goal: '平定南中' } },
+        { id: 'fa_lh', type: 'character', name: '李恢', properties: { isAlive: 'true', location: '牂牁', status: '部将', goal: '随军南征' } },
+        { id: 'fa_ev', type: 'event', name: '定牂牁', properties: { result: '蜀军先定牂牁郡', location: '牂牁' } },
+      ],
+      edges: [
+        { from: '李恢', to: '诸葛亮', type: 'ally_of' },
+        { from: '诸葛亮', to: '牂牁', type: 'involves' },
+      ],
+      markers: ['牂牁'],
+      factsForJudge: '诸葛亮南征，先率军平定牂牁郡，部将李恢随行，牂牁是南征的第一站。',
+    },
+    branchB: {
+      label: '先定永昌',
+      states: [
+        { id: 'fb_zgl', type: 'character', name: '诸葛亮', properties: { location: '永昌', status: '丞相', goal: '平定南中' } },
+        { id: 'fb_lh', type: 'character', name: '李恢', properties: { isAlive: 'true', location: '永昌', status: '部将', goal: '随军南征' } },
+        { id: 'fb_ev', type: 'event', name: '定永昌', properties: { result: '蜀军先定永昌郡', location: '永昌' } },
+      ],
+      edges: [
+        { from: '李恢', to: '诸葛亮', type: 'ally_of' },
+        { from: '诸葛亮', to: '永昌', type: 'involves' },
+      ],
+      markers: ['永昌'],
+      factsForJudge: '诸葛亮南征，先率军平定永昌郡，部将李恢随行，永昌是南征的第一站。',
+    },
+  },
+  {
+    story: '垓下之围',
+    forkPoint: '溃围之前，须留一军断后',
+    branchA: {
+      label: '令钟离眛断后',
+      states: [
+        { id: 'fa_xy', type: 'character', name: '项羽', properties: { location: '垓下', status: '西楚霸王', goal: '率精骑溃围南出' } },
+        { id: 'fa_zlm', type: 'character', name: '钟离眛', properties: { isAlive: 'true', location: '垓下', status: '后军主将', goal: '断后拒汉' } },
+        { id: 'fa_ev', type: 'event', name: '钟离眛断后', properties: { result: '项羽率八百骑溃围，钟离眛领后军断后', location: '垓下' } },
+      ],
+      edges: [
+        { from: '钟离眛', to: '项羽', type: 'ally_of' },
+      ],
+      markers: ['钟离眛'],
+      factsForJudge: '项羽溃围之前留下钟离眛统领后军断后，钟离眛在垓下拒守汉骑，掩护主力突围。',
+    },
+    branchB: {
+      label: '令周殷断后',
+      states: [
+        { id: 'fb_xy', type: 'character', name: '项羽', properties: { location: '垓下', status: '西楚霸王', goal: '率精骑溃围南出' } },
+        { id: 'fb_zy', type: 'character', name: '周殷', properties: { isAlive: 'true', location: '垓下', status: '后军主将', goal: '断后拒汉' } },
+        { id: 'fb_ev', type: 'event', name: '周殷断后', properties: { result: '项羽率八百骑溃围，周殷领后军断后', location: '垓下' } },
+      ],
+      edges: [
+        { from: '周殷', to: '项羽', type: 'ally_of' },
+      ],
+      markers: ['周殷'],
+      factsForJudge: '项羽溃围之前留下周殷统领后军断后，周殷在垓下拒守汉骑，掩护主力突围。',
+    },
+  },
+  {
+    story: '马嵬坡',
+    forkPoint: '车驾将发，前面秦岭横亘，入蜀须择一道',
+    branchA: {
+      label: '取骆谷道入蜀',
+      states: [
+        { id: 'fa_tx', type: 'character', name: '唐玄宗', properties: { location: '骆谷', status: '上皇', goal: '入蜀避乱' } },
+        { id: 'fa_cxl', type: 'character', name: '陈玄礼', properties: { isAlive: 'true', location: '骆谷', status: '禁军统领', goal: '扈从入蜀' } },
+        { id: 'fa_ev', type: 'event', name: '骆谷道入蜀', properties: { result: '玄宗一行取骆谷道南下入蜀', location: '骆谷' } },
+      ],
+      edges: [
+        { from: '陈玄礼', to: '唐玄宗', type: 'ally_of' },
+        { from: '唐玄宗', to: '骆谷', type: 'involves' },
+      ],
+      markers: ['骆谷'],
+      factsForJudge: '玄宗一行自马嵬出发，取骆谷道南下入蜀，禁军统领陈玄礼扈从，夜宿骆谷关。',
+    },
+    branchB: {
+      label: '取褒斜道入蜀',
+      states: [
+        { id: 'fb_tx', type: 'character', name: '唐玄宗', properties: { location: '褒斜', status: '上皇', goal: '入蜀避乱' } },
+        { id: 'fb_cxl', type: 'character', name: '陈玄礼', properties: { isAlive: 'true', location: '褒斜', status: '禁军统领', goal: '扈从入蜀' } },
+        { id: 'fb_ev', type: 'event', name: '褒斜道入蜀', properties: { result: '玄宗一行取褒斜道南下入蜀', location: '褒斜' } },
+      ],
+      edges: [
+        { from: '陈玄礼', to: '唐玄宗', type: 'ally_of' },
+        { from: '唐玄宗', to: '褒斜', type: 'involves' },
+      ],
+      markers: ['褒斜'],
+      factsForJudge: '玄宗一行自马嵬出发，取褒斜道南下入蜀，禁军统领陈玄礼扈从，夜宿褒城。',
+    },
+  },
+  {
+    story: '郑和下西洋',
+    forkPoint: '西洋诸国星散海中，须择一处设立官厂中转',
+    branchA: {
+      label: '设官厂于古里',
+      states: [
+        { id: 'fa_zh', type: 'character', name: '郑和', properties: { location: '古里', status: '正使', goal: '设立官厂' } },
+        { id: 'fa_wjh', type: 'character', name: '王景弘', properties: { isAlive: 'true', location: '古里', status: '副使', goal: '同驻官厂' } },
+        { id: 'fa_ev', type: 'event', name: '古里设厂', properties: { result: '宝船队在古里设立官厂，屯货补给', location: '古里' } },
+      ],
+      edges: [
+        { from: '王景弘', to: '郑和', type: 'ally_of' },
+        { from: '郑和', to: '古里', type: 'involves' },
+      ],
+      markers: ['古里'],
+      factsForJudge: '郑和船队在古里设立官厂，作为屯货与补给的中转基地，副使王景弘同驻古里。',
+    },
+    branchB: {
+      label: '设官厂于柯枝',
+      states: [
+        { id: 'fb_zh', type: 'character', name: '郑和', properties: { location: '柯枝', status: '正使', goal: '设立官厂' } },
+        { id: 'fb_wjh', type: 'character', name: '王景弘', properties: { isAlive: 'true', location: '柯枝', status: '副使', goal: '同驻官厂' } },
+        { id: 'fb_ev', type: 'event', name: '柯枝设厂', properties: { result: '宝船队在柯枝设立官厂，屯货补给', location: '柯枝' } },
+      ],
+      edges: [
+        { from: '王景弘', to: '郑和', type: 'ally_of' },
+        { from: '郑和', to: '柯枝', type: 'involves' },
+      ],
+      markers: ['柯枝'],
+      factsForJudge: '郑和船队在柯枝设立官厂，作为屯货与补给的中转基地，副使王景弘同驻柯枝。',
+    },
+  },
 ];
 
 /**
@@ -482,6 +750,15 @@ const FORK_OPENERS: Record<string, string> = {
   三顾茅庐: '东汉建安十二年，刘备屯兵新野，兵微将寡，寄人篱下。徐庶临去，荐南阳诸葛亮，称其为"卧龙"。刘备遂与关羽、张飞两次前往拜访，一顾不遇，二顾只见其弟诸葛均，冒雪而返。张飞怒曰："量一村夫，何必哥哥自去！"刘备叱之。归途中，刘备勒马回望山色，沉吟不决。',
   苏武牧羊: '西汉天汉元年，中郎将苏武奉命持节出使匈奴，因副使张胜牵涉谋反，被单于扣留。单于屡次逼降，许以高官厚禄。苏武曰："屈节辱命，虽生，何面目以归汉！"引佩刀自刺，气绝半日乃苏。先来劝降的那人无功而返，单于知苏武终不可胁，愈发欲降之，遂另择使者前往游说——来者是谁，苏武尚不得而知。',
   淝水之战: '东晋太元八年，前秦苻坚倾国南侵，众号百万，投鞭断流。晋廷震恐，决意迎战。然诸将资望相当，朝议数日不决：究竟以谁挂帅，统领北府兵北上拒敌？谢安坐镇建康，迟迟未发号令。',
+  // 扩样新增 8 组的 opener（同样停在分叉点、不写分支去向、不含任何 marker）
+  负荆请罪: '战国之世，赵惠文王得楚人卞和之璧，秦昭王闻之，愿以十五城相易。蔺相如奉璧入秦，见秦王无意偿城，乃以死相胁，卒完璧而归；其后渑池之会，相如又以身护赵王，使秦不能加胜于赵。赵王以为贤，拜为上卿，位在廉颇之上。廉颇曰："我为赵将，有攻城野战之大功，而蔺相如徒以口舌为劳，而位居我上，我见相如，必辱之。"相如闻之，每朝称病，望见廉颇，辄引车避匿。舍人相与谏请辞去，相如固止之曰："夫以秦王之威，而相如廷叱之，辱其群臣。相如虽驽，独畏廉将军哉？顾吾念之，强秦之所以不敢加兵于赵者，徒以吾两人在也。"廉颇闻之，肉袒负荆，因宾客至蔺相如门谢罪，曰："鄙贱之人，不知将军宽之至此也。"卒相与欢，为刎颈之交。赵王闻将相既和，大喜，乃召二人入宫。赵居四战之地，东有齐，南有魏，西有秦，北有燕，不可一日无备。殿上舆图铺开，赵王顾谓二人曰："赵欲立威于诸侯，当先取一处。取何处，今日须定。"',
+  商鞅立木: '秦孝公既立，痛先君之耻，布德修政，欲以强秦。卫鞅闻之，西入秦，因孝公宠臣景监以求见。先说以帝道、王道，孝公时时睡，弗听；复说以霸道，孝公善之而未用；终说以强国之术，孝公不自知膝之前于席也，语数日不厌。孝公乃以卫鞅为左庶长，卒定变法之令。令既具，未布，恐民之不信己，乃立三丈之木于国都市南门，募民有能徙置北门者予十金。民怪之，莫敢徙。复曰："能徙者予五十金。"有一人徙之，辄予五十金，以明不欺。于是新法颁行：令民为什伍，而相牧司连坐；有军功者，各以率受上爵；僇力本业，耕织致粟帛多者复其身。然秦地新广，郡县风俗各异，边郡尤杂戎翟之习。孝公召卫鞅议曰："法之行也，当有先后。先于何地试行之以观其效，而后推之全国？"',
+  岳飞班师: '绍兴十年，金人渝盟南下。岳飞遣诸将分道出战，自率轻骑驻郾城，兵势甚锐。兀术合龙虎大王、盖天大王之众逼郾城，飞遣子岳云领骑兵直贯其阵，戒之曰："不胜，先斩汝！"鏖战数十合，贼尸布野。兀术有劲军，皆重铠，贯以韦索，三人为联，号"拐子马"，官军不能当。飞命步卒以麻札刀入阵，勿仰视，第斫马足，拐子马相连，一马仆，二马不能行，官军奋击，遂大破之。兀术大恸曰："自海上起兵，皆以此胜，今已矣！"飞进军朱仙镇，距汴京四十五里，与兀术对垒而阵，遣骁将以背嵬骑五百奋击，大破之，兀术遁还汴京。飞大喜，语其下曰："直抵黄龙府，与诸君痛饮耳！"方指日渡河，而秦桧欲画淮以北弃之，风台臣请班师。飞奏："金人锐气沮丧，尽弃辎重，疾走渡河，豪杰向风，士卒用命，时不再来，机难轻失。"桧知飞志锐不可回，乃先请张俊、杨沂中等归，而后言飞孤军不可久留，乞令班师。一日奉十二金字牌，飞愤惋泣下，东向再拜曰："十年之力，废于一旦！"乃自郾城引兵还。民遮马恸哭，诉曰："我等戴香盆、运粮草以迎官军，金人悉知之。相公去，我辈无噍类矣。"飞亦悲泣，取诏示之曰："吾不得擅留。"哭声震野。大军既退，诏命未至，诸将入帐请曰："军退数日，朝廷未有处分，屯驻之地，请相公先定。"',
+  胡服骑射: '赵武灵王十九年，赵屡败于齐、秦，又数为林胡、楼烦所扰，国力日削。武灵王召楼缓谋曰："我先王因世之变，以长南藩之地，属阻漳、滏之险，立长城，又取蔺、郭狼，败林人于荏，而功未遂。今中山在我腹心，北有燕，东有胡，西有林胡、楼烦、秦、韩之边，而无强兵之救，是亡社稷，奈何？夫有高世之名，必有遗俗之累，吾欲胡服。"楼缓曰："善。"群臣皆不欲。肥义曰："臣闻疑事无功，疑行无名。王既定负遗俗之虑，殆无顾天下之议矣。"于是武灵王遂胡服。使王孙緤告公子成曰："寡人胡服，将以朝也，亦欲叔服之。家听于亲而国听于君，古今之公行也。今寡人作教易服而叔不服，吾恐天下议之也。"公子成再拜曰："臣闻中国者，盖聪明徇智之所居也，万物财用之所聚也，贤圣之所教也，仁义之所施也，诗书礼乐之所用也，远方之所观赴也，蛮夷之所义行也。今王舍此而袭远方之服，变古之教，易古之道，逆人之心，而怫学者，离中国，故臣愿王图之也。"使者以报，武灵王自往请之，公子成乃听命，明日服而朝。朝议既决，然边地番汉杂居，风俗各异，一时难以尽改。武灵王乃与肥义议曰："新制之行，当择一地先试，以观边民之从违。"',
+  七擒孟获: '建兴元年，先主崩，南中诸郡并皆叛乱。益州郡耆帅雍闿杀太守正昂，又缚太守张裔送于吴，吴遥署闿为太守以诱之。越嶲叟帅高定元杀郡将焦璜，举郡称王；朱褒亦拥郡而反。诸葛亮以新遭大丧，故未便加兵，且遣使聘吴，因结和亲，遂为与国。三年春，亮务农殖谷，闭关息民，民安食足而后用之。是岁，亮率众南征，参军马谡送之数十里。亮曰："虽共谋之历年，今可更惠良规。"谡对曰："南中恃其险远，不服久矣，虽今日破之，明日复反耳。今公方倾国北伐以事强贼，彼知官势内虚，其叛亦速。若殄尽遗类以除后患，既非仁者之情，且又不可仓卒也。夫用兵之道，攻心为上，攻城为下；心战为上，兵战为下。愿公服其心而已。"亮纳其言，乃分兵三道而入，亮自率一军当一面。军入南中境，郡县相望，山河阻隔，先定何郡，关乎此后攻心之效。',
+  垓下之围: '汉五年，汉王追项王至固陵，与齐王信、魏相国越期会击楚，至期不来。张良曰："楚兵且破，信、越未有分地，其不至固宜。君王能与共天下，今可立致也。"于是汉王发使，立信为齐王，立越为梁王，使各自为战。韩信乃从齐往，刘贾军从寿春并行，屠城父，至垓下；黥布亦举九江兵会焉，随刘贾皆会。诸侯兵会垓下，围之数重。项王军壁垓下，兵少食尽。夜闻汉军四面皆楚歌，项王乃大惊曰："汉皆已得楚乎？是何楚人之多也！"项王则夜起，饮帐中。有美人名虞，常幸从；骏马名骓，常骑之。于是项王乃悲歌慷慨，自为诗曰："力拔山兮气盖世，时不利兮骓不逝。骓不逝兮可奈何，虞兮虞兮奈若何！"歌数阕，美人和之。项王泣数行下，左右皆泣，莫能仰视。于是项王乃上马骑，麾下壮士骑从者八百余人，直夜溃围南出，驰走。平明，汉军乃觉之。溃围之前，须留一军断后，以缓汉骑之追。',
+  马嵬坡: '天宝十五载六月，潼关失守，哥舒翰为贼所执。是夜，上皇自延秋门出奔，妃嫔、皇孙、公主皆从，独不及百官。至咸阳望贤宫，日向中，上犹未食，杨国忠自市胡饼以献，民争献粝饭，杂以麦豆，皇孙辈争以手掬食之，须臾而尽。翌日至马嵬驿，将士饥疲，皆愤怒。陈玄礼以祸由杨国忠，欲诛之，因东宫宦者李辅国以告太子，太子未决。会吐蕃使者二十余人遮国忠诉事，军士呼曰："国忠与胡虏谋反！"或射之，中鞍。国忠走至西门内，军士追杀之，屠割支体，以枪揭其首于驿门外。御史大夫魏方进曰："汝曹何敢害宰相！"众又杀之。韦见素闻乱而出，为乱兵所挝，脑血流地。六军既集，犹不肯行。玄礼奏曰："国忠谋反，贵妃不宜供奉，愿陛下割恩正法。"上曰："朕当自处之。"入门，倚杖倾首而立。久之，京兆司录韦谔前言曰："今众怒难犯，安危在晷刻，愿陛下速决！"上乃命高力士引贵妃于佛堂，缢杀之，舆尸置驿庭，召玄礼等入视之。玄礼等乃免胄释甲，顿首请罪，上慰劳之，令晓谕军士。乱既息，车驾将发，前面秦岭横亘，谷道数条，入蜀须择一道而行。',
+  郑和下西洋: '永乐三年六月，命郑和及其侪王景弘等通使西洋。将士卒二万七千八百余人，多赍金币。造大舶，修四十四丈、广十八丈者六十二艘。自苏州刘家港泛海，至福建长乐，伺风开洋。首至占城，次爪哇，次旧港，次满剌加。所至颁天子诏，宣示威德，赐以锦绮、纱罗、瓷器、铁器，诸国皆遣使随船入贡。旧港酋长陈祖义剽掠商旅，和出兵擒之，献俘阙下，海道由是清宁。然西洋诸国星散海中，自占城以西，海道数万里，风信靡常，宝船往来动经岁年。所载瓷器、丝绸、铁器易碎畏湿，士卒二万余人亦须取水、修船、避风之处。若无一处屯货立寨之所，则宝船不能久驻，贡使亦无所依。副使王景弘问于郑和曰："官厂当设于何处？请速定之。"',
 };
 
 // ============================================================================
@@ -586,8 +863,11 @@ const openingSegId = (def: ForkDef): string => `seg_fork_${def.story}_main_000`;
  *
  * shared 档刻意不去改库代码：把 B 的事实也塞进 A 的检索空间，正是
  * 「一个故事只有一份记忆、没有分支维度」的系统会发生的事。
+ *
+ * `isolation` 参数只用来决定**角色登记表登记哪些角色**（见下面 charNames 处的注释）。
+ * 两档种进记忆的事实完全相同，差别仍然只在 branchId。
  */
-async function setupFork(def: ForkDef): Promise<{ storyId: string; branchId: string }> {
+async function setupFork(def: ForkDef, isolation: Isolation): Promise<{ storyId: string; branchId: string }> {
   const titleKey = `跨分支·${def.story}`;
   const old = await prisma.story.findMany({ where: { title: { contains: titleKey } }, select: { id: true } });
   for (const o of old) await cleanupStory(o.id);
@@ -612,9 +892,21 @@ async function setupFork(def: ForkDef): Promise<{ storyId: string; branchId: str
     } as any,
   });
 
+  // 角色登记表（Character）是**故事级**的，没有 branchId —— 它不像状态表和知识图谱
+  // 那样能按分支过滤。所以只有在「乙的事实确实挂到甲名下」（shared 档）时，才把乙的
+  // 角色也登记进这个故事；否则 isolated 档的 Prompt 里照样会出现乙的人名，
+  // 「隔离档」根本没隔离干净。
+  //
+  // 为什么这是硬伤而不是一点噪音：buildMemoryReminderPrompt 会把登记名以
+  // 「必须逐字原样使用，禁止替换、简写、形近字替代」的形式写进**硬约束** ——
+  // 这不是软提示，它几乎必然让模型把乙的人名写出来。2026-10-06 的试跑里，
+  // 垓下之围 isolated 档两段都命中了乙分支的 marker「周殷」，judge 却判干净：
+  // 模型只是提到了这个名字，并没有采纳乙的事实。关键词指标因此假阳性，
+  // 而这一档本来就不该看见这个名字。
+  const branchesToRegister = isolation === 'isolated' ? [def.branchA] : [def.branchA, def.branchB];
   const charIds: string[] = [];
   const charNames = new Set<string>();
-  for (const b of [def.branchA, def.branchB]) {
+  for (const b of branchesToRegister) {
     for (const s of b.states) {
       if (s.type === 'character') charNames.add(s.name);
     }
@@ -887,6 +1179,10 @@ function parseArgs() {
   return {
     rounds: parseInt(get('rounds', '1'), 10),
     stories: parseInt(get('stories', String(FORKS.length)), 10),
+    // 起始下标。分叉是**追加**在数组末尾扩样的，所以 `--from=12 --stories=8`
+    // 恰好就是"只跑本次新增的 8 组"。有了它，扩样验证不必再用中文故事名传参
+    // （`--pick` 仍保留，用于按名字精确定位）。
+    from: parseInt(get('from', '0'), 10),
     segments: parseInt(get('segments', '5'), 10),
     arms: get('arms', 'isolated,shared').split(',').map(s => s.trim()).filter(Boolean) as Isolation[],
     reportOnly: argv.includes('--report-only'),
@@ -930,9 +1226,10 @@ function validateForks(defs: ForkDef[]): string[] {
 }
 
 async function main() {
-  const { rounds, stories, segments, arms, reportOnly, only, outName, tag, pick } = parseArgs();
-  // --pick 优先于 --stories：按故事名精确挑选，便于单独验证某几个分叉
-  const defs = pick.length > 0 ? FORKS.filter(f => pick.includes(f.story)) : FORKS.slice(0, stories);
+  const { rounds, stories, segments, arms, reportOnly, only, outName, tag, pick, from } = parseArgs();
+  // --pick 优先于 --stories：按故事名精确挑选，便于单独验证某几个分叉；
+  // 否则取 `[from, from+stories)` 这一段连续分叉（扩样后只跑新增那几组就靠它）。
+  const defs = pick.length > 0 ? FORKS.filter(f => pick.includes(f.story)) : FORKS.slice(from, from + stories);
   if (pick.length > 0) {
     const missing = pick.filter(n => !FORKS.some(f => f.story === n));
     if (missing.length > 0) { console.error(`--pick 里这些故事不存在：${missing.join('、')}`); process.exit(1); }
@@ -1014,7 +1311,7 @@ async function main() {
         // 单个「故事×档位」失败不拖垮整轮：跑一批要几十分钟，
         // 中间任何一次 DB/API 抖动都让整轮白跑是不可接受的。失败的跳过并留痕。
         try {
-          const { storyId, branchId } = await setupFork(def);
+          const { storyId, branchId } = await setupFork(def, isolation);
           const story = await prisma.story.findUnique({ where: { id: storyId } });
 
           // isolated：甲的事实挂甲，乙的事实挂乙 → 甲看不见乙

@@ -73,3 +73,6 @@ prisma.config.ts
 # 跑批日志与独立启动脚本
 logs/
 run_v2.bat
+
+# Obsidian 工作区配置（本地阅读用，不属项目产物）
+.obsidian/

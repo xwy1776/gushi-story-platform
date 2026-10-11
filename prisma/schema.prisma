@@ -311,3 +311,34 @@ model CommentLike {
   @@index([commentId])
   @@map("comment_likes")
 }
+// ========== 知识图谱（喻荣海 2026-10-08 新增） ==========
+
+model Graph {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  entities    GraphEntity[]
+  relations   GraphRelation[]
+}
+model GraphEntity {
+  id         Int      @id @default(autoincrement())
+  graphId    Int
+  name       String
+  type       String
+  properties Json
+  graph      Graph    @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  sourceRel  GraphRelation[] @relation("Source")
+  targetRel  GraphRelation[] @relation("Target")
+}
+model GraphRelation {
+  id             Int         @id @default(autoincrement())
+  graphId        Int
+  sourceEntityId Int
+  targetEntityId Int
+  relationName   String
+  properties     Json
+  graph          Graph       @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  sourceEntity   GraphEntity @relation("Source", fields: [sourceEntityId], references: [id], onDelete: Cascade)
+  targetEntity   GraphEntity @relation("Target", fields: [targetEntityId], references: [id], onDelete: Cascade)
+}

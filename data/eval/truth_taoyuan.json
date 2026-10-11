@@ -1,0 +1,13 @@
+{
+    "text": "玄德遂以己志告之，云长大喜。同到张飞庄上，共议大事。",
+    "entities": [
+      {"name":"刘备","type":"person"},
+      {"name":"关羽","type":"person"},
+      {"name":"张飞","type":"person"}
+    ],
+    "relations": [
+      {"source":"刘备","target":"关羽","relation":"相识"},
+      {"source":"刘备","target":"张飞","relation":"相识"},
+      {"source":"关羽","target":"张飞","relation":"相识"}
+    ]
+  }

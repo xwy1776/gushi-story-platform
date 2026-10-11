@@ -52,9 +52,6 @@ Docs/todos_*.md
 public/generated-images/*
 !public/generated-images/.gitkeep
 
-# Consistency experiment outputs (报告与图片存档)
-/experiments/
-
 # Database backups
 /backups/
 
@@ -79,3 +76,9 @@ run_v2.bat
 
 # Obsidian 工作区配置（本地阅读用，不属项目产物）
 .obsidian/
+
+# 本地 SQLite 运行库（团队用 Postgres；这是本地适配的运行时产物，含种子数据）
+prisma/dev.db
+
+# 盲评抽样池（可重建：tests/human_eval_prepare.ts 从 ablation_results_*.json 再生成）
+Docs/ablation/human_eval/段级样本池.json

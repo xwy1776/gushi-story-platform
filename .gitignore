@@ -52,6 +52,9 @@ Docs/todos_*.md
 public/generated-images/*
 !public/generated-images/.gitkeep
 
+# Consistency experiment outputs (报告与图片存档)
+/experiments/
+
 # Database backups
 /backups/
 

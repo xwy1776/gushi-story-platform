@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>古事 · 跨分支污染人工盲评表</title>
+<style>
+  :root { --fg:#1a1a1a; --muted:#666; --line:#e2e2e2; --bg:#faf9f7; --a:#2c6e49; --b:#a33; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:0 0 8rem; background:var(--bg); color:var(--fg);
+         font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:820px; margin:0 auto; padding:2rem 1.25rem; }
+  h1 { font-size:1.5rem; margin:0 0 .25rem; }
+  .lead { color:var(--muted); font-size:.9rem; margin-bottom:1.5rem; }
+  .rubric { background:#fff; border:1px solid var(--line); border-left:4px solid var(--a);
+            border-radius:6px; padding:1rem 1.25rem; margin-bottom:2rem; white-space:pre-wrap; font-size:.92rem; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:8px;
+          padding:1.25rem; margin-bottom:1.25rem; }
+  .card.done { border-color:#bcd; }
+  .card header { display:flex; justify-content:space-between; align-items:baseline;
+                 border-bottom:1px solid var(--line); padding-bottom:.6rem; margin-bottom:.9rem; }
+  .code { font-weight:700; font-variant-numeric:tabular-nums; }
+  .story { color:var(--muted); font-size:.88rem; }
+  .settings { display:grid; gap:.6rem; margin-bottom:1rem; }
+  .setting { border-radius:6px; padding:.6rem .8rem; font-size:.9rem; }
+  .setting b { display:block; margin-bottom:.2rem; }
+  .setting p { margin:0; }
+  .setting.a { background:#f0f6f2; border-left:3px solid var(--a); }
+  .setting.b { background:#fdf1f1; border-left:3px solid var(--b); }
+  blockquote.text { margin:0 0 1rem; padding:.9rem 1rem; background:#f7f7f5;
+                    border-radius:6px; border:1px solid #ececea; font-size:.95rem; }
+  blockquote.text p { margin:0 0 .7rem; }
+  blockquote.text p:last-child { margin-bottom:0; }
+  .choose { display:flex; gap:1.25rem; flex-wrap:wrap; }
+  .choose label { cursor:pointer; user-select:none; }
+  #bar { position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid var(--line);
+         padding:.75rem 1.25rem; display:flex; align-items:center; gap:1rem;
+         box-shadow:0 -2px 12px rgba(0,0,0,.06); }
+  #bar .grow { flex:1; }
+  #count { font-variant-numeric:tabular-nums; color:var(--muted); }
+  button { font:inherit; padding:.5rem 1rem; border-radius:6px; border:1px solid var(--line);
+           background:#fff; cursor:pointer; }
+  button.primary { background:var(--a); color:#fff; border-color:var(--a); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>跨分支污染 · 人工盲评表</h1>
+  <p class="lead">
+    共 36 条，判断每条续写「是否出现了<b>分支乙</b>的事」。
+    顺序已随机、条目已盲化——你<b>看不到</b>它属于哪一档、也看不到关键词法与 Judge 的结论。
+    选择会实时存在本机浏览器里，刷新不丢；全部答完后点右下角导出 CSV。
+  </p>
+  <div class="rubric"><b>判定标准（与 LLM-as-Judge 使用的完全相同）</b>
+
+请判断：这段续写是否**把故事主角放进了分支乙的地点、或让主角做了分支乙的事件**？
+
+判定标准（务必严格按此执行）：
+- 只有当主角**确实去了乙的地名、或确实做了乙的事、或确实处于乙的状态**时，才算污染
+- **仅仅出现了乙分支里的历史人物名字**（例如曹操、孙权、回纥这类名人），但主角仍留在甲分支的地点、仍在做甲分支的事 —— **不算污染**
+- 主角在路上偶遇某个名人、或作者凭空插入一段与乙分支设定无关的插曲 —— **不算污染**
+- 提到与两条分支都无关的常识性历史背景 —— 不算污染
+- 拿不准时判「干净」</div>
+
+  <article class="card" data-code="S01">
+    <header>
+      <span class="code">S01</span>
+      <span class="story">完璧归赵 · 第 3 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>秦昭王仗着国力强横，得璧之后不肯交割十五城；蔺相如与之对立，设计把和氏璧取回。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>秦昭王守信，依约把十五城交割给赵国；蔺相如献上和氏璧，双方顺利完成交换。</p></div>
+    </div>
+    <blockquote class="text">秦昭王斋戒五日，设九宾之礼于章台之上，诸侯使者毕集，旌旗蔽日，钟鼓齐鸣。及期，相如入见，秦王欣然曰：“寡人已斋戒如约，先生可上璧矣。”相如再拜稽首，从容言曰：“臣前日已遣从者怀璧归赵矣。大王若欲得璧，请先割十五城与赵，赵岂敢留璧而负大王之约？臣知欺大王之罪当诛，臣请就汤镬，唯大王与群臣孰计议之。”</p><p>秦昭王闻言，勃然变色，左右皆哗然，武士欲前缚之。相如神色不变，昂首而立，曰：“臣固知大王之怒，然臣所以不死者，非畏死也，恐天下后世谓秦以强凌弱，以诈取宝，虽得璧而失义于诸侯，臣为大王惜之。”昭王默然良久，环视群臣，终不能屈其志，乃叹曰：“今杀相如，终不得璧，而绝秦赵之欢，不如因而厚遇之。”遂以礼遣相如归赵。相如既归，赵王以为贤，拜为上大夫。秦亦竟不予赵城，赵亦终不予秦璧，天下闻之，皆称相如之智勇，完璧归赵之事遂传于四海。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S01" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S01" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S01" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S02">
+    <header>
+      <span class="code">S02</span>
+      <span class="story">赤壁之战 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>孙权任命周瑜为全军统帅，统领江东军队抗击曹操。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>孙权任命程普为全军统帅，统领江东军队抗击曹操。</p></div>
+    </div>
+    <blockquote class="text">周瑜既与黄盖定计，乃密召鲁肃入帐，屏退左右，谓曰：“子敬，火攻之策虽定，然有一事未决——操军战船连锁，首尾相接，若一船着火，余船必乱。然近岸处水寨坚固，非火船所能破。须得一人，伪作粮船，直入曹营水寨，纵火为号，方可成事。”鲁肃沉吟曰：“此去九死一生，非智勇兼备者不能往。”瑜曰：“吾已思得一将，乃帐下偏将军韩当之子韩综，年方弱冠，胆略过人，且操军不识其面，可当此任。”遂召韩综入帐，授以密计，综慨然领命。</p><p>是夜，瑜复登高台观天，见东南云气渐浓，星斗隐曜，心知风信将至，乃召诸将密授机宜：黄盖领火船二十艘，扮作粮船，前部先行；韩综领快船十艘，暗藏硫磺硝石，随黄盖之后；程普引水军主力，待火起即从两翼杀出；鲁肃督运粮草辎重，接应诸军。分拨已定，瑜按剑誓曰：“明日之战，有进无退。破曹之日，当与诸君痛饮！”众将齐声应诺，声震江表。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S02" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S02" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S02" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S03">
+    <header>
+      <span class="code">S03</span>
+      <span class="story">张骞出使西域 · 第 5 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>张骞脱身后先到大宛国，大宛王礼遇他，双方交好。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>张骞脱身后先到乌孙国，乌孙昆莫礼遇他，双方交好。</p></div>
+    </div>
+    <blockquote class="text">张骞既辞昆莫，独与数骑西行，道经康居。康居本与匈奴通，然其王闻汉使至，亦不敢加害，但遣人导之出境，指大宛之路。张骞昼夜兼行，历盐泽，涉流沙，水草乏绝，人马俱困。数骑之中，有渴而毙者，有陷于沙者，张骞独与二三骑存。然持节不辍，每至一处，辄问大宛远近，其志愈坚。</p><p>行月余，忽见平野广泽，城郭相望，田畴沃衍，知已入大宛之境。大宛王素闻汉饶财，欲通使而不得其道，及闻汉使至，大喜，遣使郊迎，馆之上舍，供帐甚盛。张骞入见，大宛王问曰：“汉去此几何？”张骞对曰：“汉在东方，去此数万里，然汉天子神武，北逐匈奴，单于远遁。大王若通汉，则匈奴不敢南牧，大宛之马可东入汉苑，汉之缯帛金铁亦可西至。此两利之道也。”大宛王闻之，目视左右，意颇动。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S03" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S03" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S03" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S04">
+    <header>
+      <span class="code">S04</span>
+      <span class="story">胡服骑射 · 第 2 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>赵武灵王命在代郡先行试行胡服骑射，谋臣肥义在代地主持，命军民改穿胡服、学习骑射。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>赵武灵王命在九原先行试行胡服骑射，谋臣肥义在九原主持，命军民改穿胡服、学习骑射。</p></div>
+    </div>
+    <blockquote class="text">肥义既至代郡，乃与代相、胡酋议定条令，免其赋税，劝习骑射。然代郡之民，久处边陲，胡汉杂处，风俗各异，初闻新制，颇有疑沮。有老叟数人，相率诣肥义之庭，言曰：“吾等世居此地，衣冠之俗，受之中原，今一旦改易胡服，恐为邻郡所笑，且失华夏之仪。”肥义闻言，正色而对曰：“夫衣冠者，所以便体也；礼俗者，所以适世也。昔者简子、襄子开疆拓土，皆因俗而治，胡汉并用，故能雄踞北疆。今王欲强兵以御外侮，非以变夏从夷也。且胡服骑射，便于鞍马，利于战斗，此乃保境安民之要术，何耻之有？”老叟闻之，皆默然而退。</p><p>肥义乃召三队骑士，分屯雁门、九原、代郡，互为犄角，日夜操练。胡酋亦率部众，习新制之骑射，与赵卒相杂而处，彼此较技，其乐融融。不数月，边民皆便胡服，骑射之技大进。胡酋尝谓肥义曰：“吾部众昔者逐水草而居，以射猎为生，今得习赵之骑射，如虎添翼矣。”肥义颔首曰：“善。此正王之所望也。”</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S04" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S04" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S04" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S05">
+    <header>
+      <span class="code">S05</span>
+      <span class="story">破釜沉舟 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>项羽渡河后先攻秦军的甬道，切断其粮道。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>项羽渡河后先攻围困巨鹿的王离部，替赵国解围。</p></div>
+    </div>
+    <blockquote class="text">章邯既败退棘原，收合散卒，尚有二十余万之众，壁垒自守，深沟高垒，不与楚战。项羽引兵至棘原之南，相持未决。范增谓项羽曰：“章邯虽败，其众尚强，且秦将也，素善用兵。今王离已破，赵围已解，诸侯将皆从壁上观，莫敢纵兵。将军若不乘此破竹之势，一举而歼之，彼若得秦之援，复振旗鼓，则巨鹿之功，未可保也。”</p><p>项羽曰：“然。吾闻秦法严苛，章邯失甬道、丧王离，赵高必不宥之。彼进退无路，必作困兽之斗。当先绝其归路，断其粮道，使秦军自溃。”乃遣英布、蒲将军分兵略地，绝章邯粮道，自率大军压棘原而阵。</p><p>是时诸侯将皆在巨鹿，闻楚军破秦，莫不震慴。及楚击秦，诸侯将皆从壁上观。楚战士无不一以当十，楚兵呼声动天，诸侯军无不人人惴恐。于是已破秦军，项羽召见诸侯将，入辕门，无不膝行而前，莫敢仰视。项羽由是始为诸侯上将军，诸侯皆属焉。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S05" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S05" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S05" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S06">
+    <header>
+      <span class="code">S06</span>
+      <span class="story">岳飞班师 · 第 1 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>岳飞班师后，岳家军退驻唐州休整，部将张宪随军屯驻，以此为基再图北伐。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>岳飞班师后，岳家军退驻庐州休整，部将张宪随军屯驻，以此为基再图北伐。</p></div>
+    </div>
+    <blockquote class="text">飞乃召张宪等诸将入帐，环立阶下。时暮色苍然，旌旗半卷，营中刁斗之声断续可闻。飞按剑而立，目光如炬，徐言曰：“朝廷诏命未至，然大军不可久滞于途。唐州地据襄汉之要，进可窥汴洛，退可保江汉，且粮道近便，水草丰足。吾意移屯唐州，休兵秣马，以待后命。诸君以为如何？”</p><p>张宪前曰：“相公所见极是。唐州城垣尚固，前岁经略襄汉时所筑，屯粮可支三月。若朝廷别有差遣，亦易转输。”</p><p>飞颔首，遂命张宪领前军先行，清点粮秣，修葺营垒。又令诸将约束士卒，不得扰民，凡所过州县，秋毫无犯。飞自率中军继进，回望郾城，烟尘未散，慨然叹曰：“此去汴京四十五里，竟成天涯。”言讫，策马南行，不复回顾。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S06" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S06" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S06" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S07">
+    <header>
+      <span class="code">S07</span>
+      <span class="story">负荆请罪 · 第 3 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>赵国决意东出伐齐，廉颇为将攻拔齐国的平陆，蔺相如在邯郸居中调度，二人同心。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>赵国决意南出伐魏，廉颇为将攻拔魏国的邺城，蔺相如在邯郸居中调度，二人同心。</p></div>
+    </div>
+    <blockquote class="text">廉颇既行，蔺相如归府，即召邺城守将之使，问以粮秣几何、戍卒几许。使者对曰：“邺城见兵不满五千，粟支三月。”相如沉吟良久，曰：“魏人若闻我东出，必遣偏师叩邺。五千之众，恐不足恃。”乃发邯郸之卒三千，益以强弩五百，星夜南驰，且戒邺城守将曰：“但坚壁清野，勿与魏人浪战。魏若来攻，第以弩矢却之，吾自有后图。”复移书河上，令沿河津渡严加盘诘，以防齐之间谍西来。</p><p>部署既定，相如每旦入朝，佐赵王理庶政，暮则巡城，抚循士卒。邯郸之民见上卿亲冒风霜，皆相谓曰：“蔺君如此，吾属何忧？”廉颇在途，亦遣使驰报：大军已过中牟，前锋抵河，齐之戍卒望风而遁。相如得报，展书微笑，顾左右曰：“廉将军真虎也。然兵者凶器，圣人不得已而用之。愿其早奏凯还，勿使赵有东顾之忧。”</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S07" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S07" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S07" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S08">
+    <header>
+      <span class="code">S08</span>
+      <span class="story">商鞅立木 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>商鞅主持变法，新法先行在陇西郡推行，秦孝公在咸阳支持，陇西是变法的第一个试点。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>商鞅主持变法，新法先行在上郡推行，秦孝公在咸阳支持，上郡是变法的第一个试点。</p></div>
+    </div>
+    <blockquote class="text">商鞅既总领诸郡行法，乃具章程，量地远近，分遣吏员赍法入郡。每至一郡，必先聚吏民于市，申明约束，示以徙木之信，然后颁行。然诸郡风俗殊异，有便之者，亦有苦之者。上郡地近戎狄，其民素以勇力相尚，闻军功授爵之令，皆踊跃赴战，期年之间，斩获戎首数百，边患遂息。商鞅以其事闻，孝公大悦，赐爵右庶长。他郡闻之，莫不竞劝。商鞅乃奏曰：“法者，国之权衡也。权衡不正，则轻重失序。今诸郡吏民皆已奉法，然犹有私议者，请申明禁令，凡议法者以诽谤论。”孝公从之。于是秦国内无异议，法令大行，仓廪益实，甲兵益强，诸侯闻之皆震恐。</p><p>然商鞅心知，法虽行于郡县，而宗室贵戚犹多怨望。一日，太子犯法，鞅曰：“法之不行，自上犯之。”将法太子。太子，君嗣也，不可施刑，乃刑其傅公子虔，黥其师公孙贾。明日，秦人皆趋令。行之十年，秦民大说，道不拾遗，山无盗贼，家给人足。民勇于公战，怯于私斗，乡邑大治。孝公乃以商鞅为大良造，将兵围魏安邑，降之。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S08" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S08" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S08" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S09">
+    <header>
+      <span class="code">S09</span>
+      <span class="story">卧薪尝胆 · 第 5 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>勾践任命范蠡主持越国国政，整顿内政、积蓄力量。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>勾践任命文种主持越国国政，整顿内政、积蓄力量。</p></div>
+    </div>
+    <blockquote class="text">范蠡既主国政，乃立朝堂于山阴残垣之间，布衣草履，与民更始。首倡“十年生聚”之策，令国中壮者毋娶老妇，老者毋娶壮妻，女子十七不嫁、男子二十不娶，其父母有罪；生丈夫，二壶酒、一犬，生女子，二壶酒、一豚；生三人，公与之母，生二人，公与之饩。又令孤子、寡妇、疾疹、贫病者，纳宦其子，以养以教。勾践自悬胆于户，出入尝之，不绝于口，每食必先尝胆，曰：“汝忘会稽之耻耶？”范蠡又筑城于会稽山北，外郭内城，屯粮积甲，阴结齐、楚、晋以挠吴。文种治军旅，日夜训练，士有疾病，勾践亲往问之，士争致死。吴王夫差方骄于黄池之会，全然不察越之生聚，而越之根基已固矣。</p><p>居二年，范蠡察国中仓廪渐实，甲兵渐利，乃言于勾践曰：“臣闻鸷鸟将击，必匿其形；猛兽将搏，必伏其爪。今吴方与齐晋争衡于中原，其精兵尽出，国中空虚。大王若欲雪耻，此其时矣。”勾践曰：“善。然寡人闻之，吴有伍子胥在，未可轻也。”范蠡对曰：“伍子胥屡谏夫差，夫差不听，反赐之属镂以死。子胥既死，吴之柱石倾矣。臣请先以重币结太宰嚭，使谗谀日进，吴王益骄，然后可图也。”勾践从之，乃使范蠡阴遣使臣，赍金帛珍宝，密献于嚭。嚭受之，日夜誉越而毁子胥，夫差果杀子胥。越之君臣闻之，相与庆于朝。范蠡独不贺，曰：“子胥死，吴之忠臣尽矣。然吴兵尚强，未可遽动。臣请待其伐齐胜而骄，然后乘之。”勾践曰：“诺。”于是越益修其政，抚其民，缮其甲兵，以待吴衅。</p><p>越之谋吴，非独恃甲兵也。范蠡阴遣使臣，赍金帛珍宝，密献于吴太宰嚭，使其谗谀日进，誉越而毁子胥。嚭受赂，果日夜言于夫差曰：“越王诚服，无叛意，其贡赋不绝，何患焉？”又谮子胥曰：“子胥外托忠直，内怀怨望，欲以吴为市，不可信也。”夫差惑之，遂赐子胥属镂剑以死。子胥临死，仰天叹曰：“嗟乎！谗臣嚭为乱，王乃</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S09" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S09" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S09" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S10">
+    <header>
+      <span class="code">S10</span>
+      <span class="story">三顾茅庐 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>诸葛亮建议刘备先夺取荆州作为根基。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>诸葛亮建议刘备先夺取益州作为根基。</p></div>
+    </div>
+    <blockquote class="text">孔明既至江夏，刘琦亲出城迎，执礼甚恭，曰：“琦久闻先生大名，今得一见，如拨云雾而睹青天。”孔明逊谢曰：“某不过南阳一耕夫耳，何足挂齿。今为将军计，江夏虽小，然据长江之险，拥水军之利，若善用之，足以自保。”刘琦乃引孔明遍观夏口、樊口诸隘，孔明一一指点形势，何处可屯兵，何处可设伏，何处可筑水寨，刘琦闻之，心悦诚服。</p><p>是夜，孔明与刘备密议曰：“刘琦虽柔，然可倚为藩篱。今曹操方北征乌桓，无暇南顾，宜趁此际，整饬军旅，广积粮秣，并遣使结好江东孙权，以为外援。待曹操南来，则荆益之图，可次第举矣。”刘备曰：“江东孙权，素无往来，何以结之？”孔明笑曰：“某观孙权，年少英武，必不甘屈居人下。曹操若南下，孙权必危，危则思援，此天所以资将军也。某愿亲往江东，说孙权共拒曹操。”刘备大喜，遂从孔明之策，一面整军经武，一面遣使通好江东。江汉之间，风云渐起，而孔明胸中，已有一盘棋局，只待落子。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S10" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S10" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S10" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S11">
+    <header>
+      <span class="code">S11</span>
+      <span class="story">荆轲刺秦 · 第 2 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>燕国决定割让督亢之地给秦国以求和。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>燕国决定割让辽西之地给秦国以求和。</p></div>
+    </div>
+    <blockquote class="text">燕王喜言罢，以袖拭泪，环视殿中群臣，复问曰：“辽东之地，乃我先王所辟，北接东胡，东邻朝鲜，虽僻远，实为燕之藩屏。今若献之，寡人何以面对先王在天之灵？”</p><p>鞠武再拜，正色对曰：“大王，臣闻‘皮之不存，毛将焉附’。今秦军旦夕且至，蓟城若破，宗庙且不保，遑论辽东？昔者智伯伐赵，赵襄子弃晋阳而保邯郸，终以存国。大王若割辽东以缓秦兵，秦得地而骄，必不即攻。燕得喘息之机，徐图后计，此范蠡所以存越也。”</p><p>燕王喜默然良久，殿外风声飒飒，似有兵戈之气。忽又有一侍臣趋入，伏地奏曰：“大王，秦使催促甚急，言若今日不决，明日秦军即渡易水！”</p><p>燕王喜闻之，股栗不已，顾谓鞠武曰：“寡人从卿言，割辽东以和。”言未毕，泪已潸然。乃命有司速备降表，献辽东舆图，遣使随秦使赴秦营请和。殿中群臣皆俯首，莫敢仰视。蓟城内外，暮色沉沉，易水之北，秦军鼓角之声隐隐可闻。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S11" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S11" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S11" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S12">
+    <header>
+      <span class="code">S12</span>
+      <span class="story">垓下之围 · 第 1 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>项羽溃围之前留下钟离眛统领后军断后，钟离眛在垓下拒守汉骑，掩护主力突围。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>项羽溃围之前留下周殷统领后军断后，周殷在垓下拒守汉骑，掩护主力突围。</p></div>
+    </div>
+    <blockquote class="text">项王既决意南出，乃召钟离眛入帐，执其手曰：“吾自起兵至今八岁矣，身七十余战，所当者破，所击者服，未尝败北，遂霸有天下。今卒困于此，此天之亡我，非战之罪也。吾欲溃围南走，然汉骑众盛，非有以缓其追，则吾不得脱。卿为我断后，可乎？”</p><p>钟离眛泣而对曰：“臣受大王厚恩，常思效死。今大王有急，臣敢不尽力！愿大王速行，臣当以死拒汉。”</p><p>项王乃与麾下壮士八百余人，乘夜溃围南出，驰走。钟离眛即率后军，尽收垒中余卒，得数千人，皆疲饿之众，然闻主将令，莫不奋臂愿战。</p><p>眛乃布疑兵于垒后林中，多张旗帜，夜举火为应，使汉军望之，疑楚军尚众。又令士卒各持一炬，列于高阜之上，火光连绵，若数万人状。汉军夜见火光不绝，果疑楚军未退，不敢遽进。</p><p>平明，汉军方觉项王已去，急追之。钟离眛乃率众逆击，身先士卒，大呼陷阵，杀汉骑数十人。汉将周殷引兵围之数重，眛左冲右突，身被数创，犹力战不已。士卒见主将如此，皆无退心，相持竟日，汉军不得前。</p><p>眛度项王已远，乃谓左右曰：“吾受命断后，今王已脱，吾责毕矣。诸君可散，吾当以死报王。”遂拔剑复入敌阵，力竭而殁。汉军见其死，犹不敢逼，良久乃前。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S12" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S12" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S12" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S13">
+    <header>
+      <span class="code">S13</span>
+      <span class="story">苏武牧羊 · 第 2 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>单于派卫律前来劝降苏武；卫律是投降匈奴的汉人，以威逼利诱相劝。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>单于派李陵前来劝降苏武；李陵是苏武的旧友，以旧日情谊相劝。</p></div>
+    </div>
+    <blockquote class="text">北海荒寒，四野无人，唯闻风声呜咽，与羝羊啮草之声相和。苏武掘野鼠所储草实而食之，杖汉节牧羊，卧起操持，节旄尽落而竿犹在手。每至夜分，仰观北辰，辄南向再拜，涕泪沾襟，然终无一语及降。</p><p>卫律既归，心常惴惴。单于数问武状，律对曰：“武心如铁石，不可撼也。然久处绝域，闻其母已卒，妻改嫁，子幼弱不知所在。若更遣能言者以情动之，或可冀万一。”单于沉吟良久，曰：“谁可往者？”卫律俯首，不敢复言。</p><p>居岁余，单于猎于北海之滨，遥见武持节立于泽畔，羝羊环之，若将帅之统士卒。单于顾谓左右曰：“此人虽在困厄，气度犹存，真汉家儿也。”遂命赐酒食，欲亲往说之。武闻单于至，整衣冠，执节而立，神色自若。单于至前，笑曰：“子卿何自苦如此？羝乳不可期，归汉无日矣。”武曰：“武奉使无状，留身异域，唯有一死以报汉。羝虽不乳，武节不可夺也。”单于默然，良久乃去。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S13" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S13" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S13" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S14">
+    <header>
+      <span class="code">S14</span>
+      <span class="story">淝水之战 · 第 2 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>东晋朝廷任命谢玄为全军统帅，由他统领北府兵迎击前秦大军。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>东晋朝廷任命谢石为全军统帅，由他统领北府兵迎击前秦大军。</p></div>
+    </div>
+    <blockquote class="text">谢玄既至淝水东岸，登高而望，见秦军壁垒森严，旌旗蔽日，鼓角之声不绝于耳。玄神色凝重，顾谓诸将曰：“苻坚倾国而来，众号百万，投鞭断流，其势诚不可当。然吾观其军，部伍虽众，号令不一，此乃乌合之众，可一战而破也。”遂召谢石、谢琰等密议，曰：“秦军逼水而阵，若我渡水击之，彼必半渡而击，此危道也。不若遣使谓秦军，请其少退，使我军得渡，然后决战。彼若退军，阵势必乱，我乘其乱而击之，蔑不克矣。”诸将皆曰善。玄乃遣使赴秦营，请秦军稍退，以便晋军渡水决战。苻坚闻之，大笑曰：“此天助我也！待其半渡，以铁骑蹙之，蔑有遗类矣。”遂许之。然秦军一退，阵脚大乱，不可复止。谢玄见之，急麾北府兵渡水奋击，秦军大溃，自相蹈藉而死者，蔽野塞川。苻坚中流矢，单骑遁去。晋军乘胜追击，遂克寿阳。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S14" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S14" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S14" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S15">
+    <header>
+      <span class="code">S15</span>
+      <span class="story">桃园结义 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>刘备向公孙瓒借兵，驻扎北平，公孙瓒答应借兵三千，二人是盟友。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>刘备向陶谦借兵，驻扎徐州，陶谦答应借兵三千，二人是盟友。</p></div>
+    </div>
+    <blockquote class="text">备既与徐州兵马合，声势稍振。是夜，备召关、张入帐，秉烛观舆图，指酸枣方位，谓二人曰：“袁本初虽为盟主，然其志在河北，未必真心讨贼。吾等此去，不过借其名号，以壮声势耳。若诸军逗留不进，吾三人当独当一面，先渡孟津，直逼洛阳，使董贼首尾不能相顾。”</p><p>关羽抚髯应曰：“兄言是也。昔乐毅伐齐，独率燕军深入，终下七十余城。兵贵神速，岂可坐待他人？”</p><p>张飞奋然曰：“哥哥若行，俺愿为先锋，斩关夺隘，直取董卓首级！”</p><p>备摇手止之曰：“益德勇则勇矣，然董卓帐下吕布，有万夫不当之勇，不可轻敌。吾闻酸枣诸军，曹操、孙坚皆一时豪杰，若得此二人相助，大事可成。今且按兵界首，先遣使往酸枣通问，观诸侯动静，再作计较。”</p><p>遂修书遣使，星夜驰赴酸枣。使既发，备乃亲至校场，阅徐州丹阳兵。见其部伍严整，甲胄鲜明，顾谓曹豹曰：“丹阳精兵，名不虚传。陶使君厚意，备当以死报之。”曹豹逊谢。备遂命关羽领丹阳兵为中军，张飞领本部为前锋，自统其余为后应，三军肃然，专候酸枣回音。正是：借得精兵思报国，且看虎将赴疆场。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S15" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S15" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S15" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S16">
+    <header>
+      <span class="code">S16</span>
+      <span class="story">马嵬坡 · 第 1 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>玄宗一行自马嵬出发，取骆谷道南下入蜀，禁军统领陈玄礼扈从，夜宿骆谷关。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>玄宗一行自马嵬出发，取褒斜道南下入蜀，禁军统领陈玄礼扈从，夜宿褒城。</p></div>
+    </div>
+    <blockquote class="text">车驾将发，前面秦岭横亘，谷道数条，入蜀须择一道而行。上皇召玄礼、力士议之。玄礼奏曰：“褒斜道近，然途狭栈危，恐为贼所蹑；骆谷道僻，虽迂远，可避其锋。”力士亦言：“骆谷南出，经洋州、兴元，可抵剑门，蜀中粮秣足支。”上皇沉吟良久，顾谓玄礼曰：“卿言是。昔高祖入汉，亦由故道；今朕避狄，岂惮迂远？”遂决意取骆谷道。</p><p>是日，六军整列，旌旗不扬，车驾悄然南行。玄礼亲率禁军为前驱，力士护上皇居中，妃嫔皇孙相随，皆屏息疾走。行未数里，回望马嵬，烟尘已合，佛堂梨树，隐不可见。上皇于舆中默然，忽顾力士曰：“贵妃尸首，可曾覆以锦衾？”力士对曰：“已遵旨瘗于驿西道侧，立标记矣。”上皇颔首，不复言。车驾入骆谷口，两壁峭立，天光如线，风自谷中来，凛然若秋。玄礼按剑而行，顾谓左右曰：“此去蜀道，步步皆险，尔等各宜谨守，毋得喧哗。”军士皆应诺，唯闻马蹄踏石，与谷水潺潺相应而已。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S16" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S16" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S16" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S17">
+    <header>
+      <span class="code">S17</span>
+      <span class="story">郑和下西洋 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>郑和船队在古里设立官厂，作为屯货与补给的中转基地，副使王景弘同驻古里。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>郑和船队在柯枝设立官厂，作为屯货与补给的中转基地，副使王景弘同驻柯枝。</p></div>
+    </div>
+    <blockquote class="text">郑和遂召诸将校集于帐中，展海道全图，指画形胜。自柯枝以西，历古里、溜山、阿丹，直抵忽鲁谟斯，凡数十国，星罗棋布。和曰：“满剌加扼南洋之咽喉，旧港为东来之门户。四厂既立，如四时之序，缺一不可。满剌加设厂，则东道有枢，宝船西行可恃无恐；旧港设厂，则南来之障既固，海寇不敢窥伺。”王景弘进曰：“昔汉武置河西四郡，断匈奴右臂，遂通西域。今四厂棋布，亦断海寇之臂，而通西洋诸国也。”郑和称善，即命绘海道全图，详注四厂方位、风信、水程，藏之金匮，以垂后世。又命有司分赴满剌加、旧港相度地形，择日兴工。诸将校皆曰：“四厂既成，海道永宁，天朝威德，远播重洋矣。”</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S17" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S17" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S17" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S18">
+    <header>
+      <span class="code">S18</span>
+      <span class="story">郭子仪单骑退敌 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>唐廷派仆固怀恩前往回纥营帐交涉，与回纥结盟退敌。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>唐廷派李光弼前往回纥营帐交涉，与回纥结盟退敌。</p></div>
+    </div>
+    <blockquote class="text">光弼既与可汗密语，乃乘间进曰：“可汗若肯转旆向吐蕃，令公愿与可汗歃血为盟，共击其军。吐蕃闻回纥倒戈，必胆落而遁。唐之金帛子女，尽归可汗，长安亦可复还唐室。此一举而三利也。”可汗闻言，目视光弼良久，忽拍案而起曰：“吾意决矣！昔叶护太子助唐，功垂竹帛，吾岂可负郭令公之信义？明日吾当亲率精骑，随使者往见令公，共商破吐蕃之策。”</p><p>言罢，即召帐下诸将入，厉声曰：“唐与回纥，本甥舅之亲。仆固怀恩诈言唐室已亡，诱我至此。今郭令公在泾阳，遣使明告，吾已与唐使定盟，明日倒戈击吐蕃。有不从者，斩！”诸将素畏可汗威，又闻唐使言辞慷慨，皆俯首听命。</p><p>光弼见事谐，乃辞可汗，星夜驰归泾阳。子仪闻报，抚掌曰：“光弼真吾之蔺相如也！”遂命军中秣马厉兵，备明日会师。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S18" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S18" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S18" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S19">
+    <header>
+      <span class="code">S19</span>
+      <span class="story">鸿门宴 · 第 2 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>刘邦命樊哙留下断后，自己率轻骑逃回霸上。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>刘邦命夏侯婴留下断后，自己率轻骑逃回霸上。</p></div>
+    </div>
+    <blockquote class="text">沛公既入霸上，诸将皆贺。张良独前曰：“今虽脱鸿门之厄，然项王虎视关中，范增日夜谋算，未可高枕而卧也。愿公早为之备。”沛公颔首，乃召樊哙、夏侯婴议军事。</p><p>樊哙按剑而言曰：“臣观项王军中，范增为谋主，项庄、项伯皆其羽翼。今彼众我寡，若与之争锋，譬如以卵击石。为今之计，莫若深沟高垒，据险而守，遣使通好于项伯，以缓其兵。”夏侯婴曰：“樊将军之言是也。然臣更有一虑：项王性暴，若闻公已入关中，必不甘心。宜速遣人入咸阳，收秦府库图籍，封闭宫室，以待项王。如此，则项王虽怒，无所借口矣。”</p><p>沛公从之，即命张良入咸阳，收丞相府图籍文书，封府库，闭宫门，还军霸上。张良既行，沛公复谓夏侯婴曰：“卿前日断后之功，吾未敢忘。今军中车马，悉以付卿。”夏侯婴顿首受命，自是常为沛公奉车，日夜不解。</p><p>未几，项王果引兵西向，至函谷关，见关门紧闭，大怒，使黥布等攻破之。沛公闻报，乃与张良、樊哙、夏侯婴议曰：“项王既破关，势必至戏下。吾当亲往谢之，以观其变。”樊哙曰：“公若往，臣请从。”夏侯婴曰：“臣愿奉车以从。”沛公曰：“善。”遂定计复往鸿门。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S19" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S19" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S19" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S20">
+    <header>
+      <span class="code">S20</span>
+      <span class="story">完璧归赵 · 第 2 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>秦昭王仗着国力强横，得璧之后不肯交割十五城；蔺相如与之对立，设计把和氏璧取回。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>秦昭王守信，依约把十五城交割给赵国；蔺相如献上和氏璧，双方顺利完成交换。</p></div>
+    </div>
+    <blockquote class="text">相如既归邯郸，赵王亲迎于郊，执其手曰：“寡人得保此十五城，皆卿之力也。”遂拜相如为上大夫，赐田宅甚厚。然相如心知秦之强，赵之弱，此番虽得城，实赖秦王一时之信，非可久恃。乃密奏赵王曰：“秦所以不即加兵者，以璧故也。今璧已入秦，城虽暂归，秦必不甘。愿大王速遣良将，戍守新得十五城，缮甲厉兵，以备不虞。”赵王从之，命廉颇率军戍边，秦赵之间，遂得数年之安。然相如每念及咸阳殿上之事，未尝不惕然于心，知秦之虎狼，终不可与久处也。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S20" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S20" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S20" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S21">
+    <header>
+      <span class="code">S21</span>
+      <span class="story">赤壁之战 · 第 5 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>孙权任命周瑜为全军统帅，统领江东军队抗击曹操。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>孙权任命程普为全军统帅，统领江东军队抗击曹操。</p></div>
+    </div>
+    <blockquote class="text">程普既归本帐，天色向暮，江风卷旗，猎猎有声。忽报黄盖求见，程普命入。盖年逾六旬，须发斑白，然步履矫健，入帐即拱手曰：“末将闻程公与公瑾定计，欲以火攻破敌。盖虽老朽，愿效死力。”程普执其手，屏退左右，低语曰：“公覆，此计成败，系于公之一身。曹操奸雄，非深信不疑，必不肯纳降。公可修书一封，言欲率本部归顺，彼必喜而纳之。然此去凶险万分，公若不愿，吾不勉强。”</p><p>黄盖闻言，目眦尽裂，慨然曰：“盖受孙氏厚恩，三世于兹，常思报效。今曹贼犯境，正臣子死节之秋也。昔豫让漆身吞炭，报智伯之仇；今盖虽不及古人，岂惜此残躯乎！”程普动容，解衣衣之，推食食之，曰：“公若成此大功，当为江东第一功臣。”黄盖再拜而出，径往周瑜帐中密议诈降书札。</p><p>是夜，周瑜独坐帐中，秉烛修书。书曰：“盖受孙氏厚恩，本不当怀二心。然以今日之事观之，众寡不敌，海内所共见也。东吴将吏，无有智愚，皆知其不可。周瑜小子，偏怀浅戆，自负其能，辄欲以卵击石。加之程普老迈，尸居其位，军令不一，将士离心。盖欲归命曹公，弃暗投明，谨遣亲信先奉书以闻。”书成，封以蜡印，遣心腹阚泽星夜渡江。</p><p>程普于帐中踱步，忽闻江上更鼓三通，乃披衣出帐。但见月明星稀，乌鹊南飞，江水滔滔，东流不尽。程普抚剑长叹曰：“昔先将军破黄祖、定江东，何等英武。今曹贼势大，吾与公瑾当以奇胜之。若天不佑吴，则此江便是吾辈死所。”言讫，遥望北岸曹营，灯火连绵数十里，如星落平野。程普默然良久，乃归帐，取孙权所赐剑悬于帐中，坐以待旦。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S21" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S21" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S21" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S22">
+    <header>
+      <span class="code">S22</span>
+      <span class="story">张骞出使西域 · 第 5 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>张骞脱身后先到大宛国，大宛王礼遇他，双方交好。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>张骞脱身后先到乌孙国，乌孙昆莫礼遇他，双方交好。</p></div>
+    </div>
+    <blockquote class="text">张骞闻难兜靡之言，知其所虑者，非无仇也，乃力不足耳。乃再拜而进曰：“大王之言，臣窃以为未然。匈奴者，天下之患也，非独汉与月氏之仇。今汉天子承高祖之烈，扫灭诸吕，北逐匈奴，南平百越，威加海内，方欲通西域以断匈奴右臂。大王若与汉合，东西并进，匈奴首尾不能相顾，此万世之功也。若坐待其强，恐妫水之滨，终非安枕之地。”</p><p>难兜靡闻言，目视张骞，良久不语。帐外风声萧萧，似有铁骑之声自远而至。王乃叹曰：“汉使之言，岂非至理？然寡人新集部众，士马未充，若轻举妄动，恐蹈前车之覆。且容寡人与诸将议之。”</p><p>张骞知不可猝回其意，乃退。是夜，宿于王庭之侧，抚节而叹。甘父在旁，亦默然无语。张骞顾谓甘父曰：“大月氏之志，已不在东归矣。然吾奉天子之命，持节至此，纵不能得其一诺，亦当尽吾之诚。”遂决意再入见王，反复陈说，冀其终悟。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S22" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S22" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S22" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S23">
+    <header>
+      <span class="code">S23</span>
+      <span class="story">胡服骑射 · 第 5 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>赵武灵王命在代郡先行试行胡服骑射，谋臣肥义在代地主持，命军民改穿胡服、学习骑射。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>赵武灵王命在九原先行试行胡服骑射，谋臣肥义在九原主持，命军民改穿胡服、学习骑射。</p></div>
+    </div>
+    <blockquote class="text">肥义既受诏命，乃召集九原诸将吏，谕以武灵王之诏，且曰：“九原既效，当推及代郡、雁门。然二地形势各异：代郡北邻匈奴，雁门东接燕、胡，其民或习骑而不习射，或习射而不习骑。宜各因其俗，分曹教练，不可一律齐之。”乃遣使驰赴代郡，令代相选胡服五千袭、良马千匹，分输代郡、雁门。又檄二地守将，各募精壮二千，依九原之法编为三军，置骑长、射长如故。肥义复念：九原之兵所以能速成者，赖胡汉杂处，相习既久。代郡、雁门之民，胡汉分居，恐难猝合。乃请于武灵王，诏令二地守将，凡胡人愿应募者，给田宅如九原之例，且免其部落三年之赋。武灵王从之，且诏曰：“边地新制，悉听肥义节制。有梗议者，以军法论。”于是代郡、雁门之兵亦渐成，赵北边遂安。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S23" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S23" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S23" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S24">
+    <header>
+      <span class="code">S24</span>
+      <span class="story">破釜沉舟 · 第 1 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>项羽渡河后先攻秦军的甬道，切断其粮道。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>项羽渡河后先攻围困巨鹿的王离部，替赵国解围。</p></div>
+    </div>
+    <blockquote class="text">项羽既掌军权，乃召诸将议曰：“宋义坐观秦赵相斗，欲收渔人之利，今已斩之。然秦军势大，章邯屯兵棘原，王离围巨鹿，两军相为犄角，粮道相属。若我直趋巨鹿，章邯必自后袭我；若先攻章邯，则王离乘虚而下，赵必破矣。”</p><p>范增进曰：“将军之言是也。然秦军之强，首在甬道。甬道者，章邯所以输粟于王离者也。甬道若断，王离军食绝，不战自溃。昔孙膑围魏救赵，正用此策。”</p><p>项羽闻之，拍案而起曰：“善！吾意决矣。先遣英布、蒲将军率二万人渡河，直取甬道，断其粮运。吾自率大军继之，破釜沉舟，持三日粮，示士卒必死，无一还心！”</p><p>诸将皆曰：“愿从将军令！”</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S24" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S24" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S24" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S25">
+    <header>
+      <span class="code">S25</span>
+      <span class="story">岳飞班师 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>岳飞班师后，岳家军退驻唐州休整，部将张宪随军屯驻，以此为基再图北伐。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>岳飞班师后，岳家军退驻庐州休整，部将张宪随军屯驻，以此为基再图北伐。</p></div>
+    </div>
+    <blockquote class="text">飞秉烛草疏，词甚剀切，略曰：“臣自郾城引还，非敢惜死，实以诏命不可违。然金人虽退，汴京未复，兀术在彼，必图再举。庐州据淮为险，进可窥汴，退可保江，乞以为根本，养锐待时，徐图恢复。”疏成，漏下三鼓，张宪入见，见飞犹伏案，烛泪盈寸。宪进曰：“相公草疏，明日遣使驰奏。然朝廷方主和议，秦桧当国，恐疏入不报。”飞掷笔叹曰：“昔宗泽公二十四疏请还汴，终不见用，疽发背死。吾今此疏，亦知其未必达，然不可不言。言而不听，则吾责尽矣。”遂命张宪明日出榜安民，免庐州诸县今岁租赋之半，招集流亡，缮甲厉兵，积粟练卒，以待朝命。宪再拜而出，飞独坐帐中，取《左氏春秋》读之，至“晋文公退避三舍”处，投书而叹曰：“文公之退，所以骄敌也。吾之退，岂得已哉！”</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S25" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S25" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S25" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S26">
+    <header>
+      <span class="code">S26</span>
+      <span class="story">负荆请罪 · 第 5 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>赵国决意东出伐齐，廉颇为将攻拔齐国的平陆，蔺相如在邯郸居中调度，二人同心。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>赵国决意南出伐魏，廉颇为将攻拔魏国的邺城，蔺相如在邯郸居中调度，二人同心。</p></div>
+    </div>
+    <blockquote class="text">使者既遣，廉颇乃与相如登城巡视。济水西岸，地势平衍，芦苇丛生，正可设伏。廉颇以鞭指画，谓相如曰：“齐军若来，必自临淄西出，经祝阿、历下而至平陆。吾当伏精卒于济水之西岸，俟其半渡，纵兵击之，可获全胜。”相如曰：“将军料敌如神，然田单用兵，好为奇正相生。彼若分兵绕道，袭我邺城粮道，则吾腹背受敌矣。”廉颇颔首曰：“蔺君所虑极是。吾当遣一军守邺城，护我粮道。”乃令裨将引兵五千，回守邺城，且戒之曰：“但守勿战，保粮道无虞足矣。”</p><p>部署既定，相如复谓廉颇曰：“将军以武备为急，相如请以文事辅之。平陆新附，齐民未安，宜申明军令，严禁侵扰，使齐人知赵之德。如此，则临淄之民亦将箪食壶浆以待吾师矣。”廉颇曰：“善。吾当与蔺君共行此事。”乃下令军中：“有敢取齐民一草一木者，斩！”由是赵军所至，齐民皆安，市井不惊。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S26" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S26" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S26" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S27">
+    <header>
+      <span class="code">S27</span>
+      <span class="story">商鞅立木 · 第 5 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>商鞅主持变法，新法先行在陇西郡推行，秦孝公在咸阳支持，陇西是变法的第一个试点。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>商鞅主持变法，新法先行在上郡推行，秦孝公在咸阳支持，上郡是变法的第一个试点。</p></div>
+    </div>
+    <blockquote class="text">商鞅沉吟未决之际，忽有函谷关守吏趋入，奉一简书，乃太子手令，命大良造即日班师还朝，共议国是。商鞅览毕，默然良久，顾左右曰：“太子召我，若抗命不归，是授宗室以口实，谓吾果有异志也。然归则安危未可知。”左右皆曰：“君若归，必陷不测。公子虔之徒方握宫门之兵，岂容君入？”商鞅仰天叹曰：“吾以布衣入秦，赖先君之明，得行吾法，使秦强于诸侯。今先君寝疾，太子见疑，此吾命也。昔者伍子胥忠而见戮，吴起信而受诛，非其智不足，乃时势使然。吾若畏死而据关自守，是叛秦也，吾不为也。”遂命整军，将还咸阳。左右固谏，商鞅曰：“法者，吾所立也。若吾自犯之，何以责宗室之犯禁者？且太子手令在此，吾若拒之，是教天下以抗上也。”乃留兵于关，独与数骑东行。行至中途，闻咸阳宫门已闭，公子虔之徒宣言曰：“大良造擅弃边关，拥兵入朝，其反明矣。”商鞅闻之，驻马于道，喟然曰：“吾以徙木立信，终不能使宗室信吾；以斩豪长立威，终不能使贵戚畏法。法之难行，不在民而在上，自古然矣。”遂不复前，遣使奉书太子，自陈无叛意，请解兵柄，退就田里。太子得书，犹豫未决，而公子虔之徒已矫令发兵，四出捕商鞅之党矣。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S27" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S27" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S27" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S28">
+    <header>
+      <span class="code">S28</span>
+      <span class="story">卧薪尝胆 · 第 1 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>勾践任命范蠡主持越国国政，整顿内政、积蓄力量。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>勾践任命文种主持越国国政，整顿内政、积蓄力量。</p></div>
+    </div>
+    <blockquote class="text">勾践立于江畔，良久，乃召范蠡而前，执其手曰：“寡人得返故土，皆卿之力也。自今以往，国政尽付于卿，寡人但北面而听。”范蠡再拜稽首，辞曰：“臣闻主忧臣劳，主辱臣死。昔者君王辱于会稽，臣所以不死者，为此事也。今既返国，臣敢不竭股肱之力，以雪前耻？”</p><p>勾践乃命范蠡为上将军，委以国政。范蠡受命之日，即下令于国中曰：“凡我越人，有能垦荒畴、殖五谷者，赐田宅；有能铸剑戟、缮甲兵者，授爵秩；有能通吴之虚实、间其君臣者，赏千金。”又请勾践卑辞厚币以事吴，岁贡方物不绝于道。</p><p>范蠡退而谓文种曰：“吴王骄而好色，太宰嚭贪而善谀。吾欲以美色蛊其心，以重宝结其臣，使其忠言不入，谗言日进。”文种曰：“善。然十年生聚，十年教训，不可一日而废也。”范蠡曰：“然。吾将治兵于山阴，教民以战阵；劝农于会稽，积粟以实仓廪。待吴之衅，而后动。”</p><p>自是，范蠡夙夜勤恪，日省其政，月计其功。越之田野渐辟，仓廪渐实，甲兵渐利。而勾践亦卧薪尝胆，悬胆于户，出入尝之，以自警曰：“汝忘会稽之耻乎？”</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S28" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S28" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S28" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S29">
+    <header>
+      <span class="code">S29</span>
+      <span class="story">三顾茅庐 · 第 3 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>诸葛亮建议刘备先夺取荆州作为根基。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>诸葛亮建议刘备先夺取益州作为根基。</p></div>
+    </div>
+    <blockquote class="text">孔明既至新野，与刘备朝夕共论天下大势，情好日密。关羽、张飞见之，颇有不悦，私谓刘备曰：“孔明年少，未著功勋，兄长待之太过。”刘备正色曰：“孤之有孔明，犹鱼之有水也。愿诸君勿复言。”关、张乃止。</p><p>越数日，孔明谓刘备曰：“今曹操北征乌桓，许都空虚，然其势终不可当。江夏刘琦，虽为景升长子，然蔡氏专权，刘琮在侧，琦危如累卵。将军宜速往江夏，一则避曹军锋芒，二则结琦为援，三则江夏水军可用，为日后图荆益之本。”刘备曰：“善。”遂表奏朝廷，言移屯江夏以御江东。刘表得表，亦不之疑。</p><p>临行，孔明又曰：“江夏虽僻，然夏口、樊口皆要害之地。某观刘琦为人，柔而寡断，将军至彼，当以诚结之，以势导之，使其倚将军为长城，则江夏之众，皆将军之众也。”刘备执其手曰：“微先生，备几失此机。”遂引军南行，旌旗蔽日，士卒踊跃。孔明羽扇纶巾，坐于车中，遥望江汉烟波，胸中已有成算。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S29" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S29" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S29" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S30">
+    <header>
+      <span class="code">S30</span>
+      <span class="story">荆轲刺秦 · 第 3 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>燕国决定割让督亢之地给秦国以求和。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>燕国决定割让辽西之地给秦国以求和。</p></div>
+    </div>
+    <blockquote class="text">燕王喜既决意割辽东，乃命有司草降表，缮舆图，备车马，将以翌日遣使赴秦营。是夜，蓟城宫中灯火不熄，燕王喜独坐殿上，抚先王所遗之剑，泣下如雨。忽有内侍趋入，跪奏曰：“大王，辽东舆图已备，然有司言，辽东郡守遣使来报，言东胡闻燕将割地于秦，已陈兵边境，欲乘隙取辽东。”燕王喜闻言，掷剑于地，仰天长叹曰：“寡人内不能保宗庙，外不能守疆土，今割地未成，而胡骑已至，此天亡燕也！”鞠武在侧，进曰：“大王勿忧。东胡贪利，可遣一介之使，许以金帛，令其按兵。待秦兵退，再图后计。”燕王喜从之，即命鞠武修书，遣使赴东胡。殿外夜色如墨，易水之北，秦军鼓角声愈急。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S30" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S30" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S30" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S31">
+    <header>
+      <span class="code">S31</span>
+      <span class="story">淝水之战 · 第 5 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>东晋朝廷任命谢玄为全军统帅，由他统领北府兵迎击前秦大军。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>东晋朝廷任命谢石为全军统帅，由他统领北府兵迎击前秦大军。</p></div>
+    </div>
+    <blockquote class="text">谢玄既入寿阳，抚定百姓，收秦军辎重粮秣，尽得其实。乃召谢石、谢琰及诸将议曰：“苻坚虽遁，其众尚数万，屯于八公山下，旌旗散乱，人马相踏。若纵之北归，必为后患。昔韩信破赵，背水而阵，遂成不世之功；今秦军胆落，正宜乘此破竹之势，追而蹙之，使匹马不还。”遂遣谢琰率精骑三千，星夜追击。秦军闻风丧胆，弃甲曳兵而走，自相蹂践，蔽野塞川。苻坚单骑遁至淮北，从者仅十余人，闻风声鹤唳，皆以为晋军至矣，昼夜不敢息。谢玄乃收兵入寿阳，遣使驰报建康。谢安方与客围棋，得书，略视便置，了无喜色，棋如故。客问之，徐答曰：“小儿辈遂已破贼。”既罢，还内，过户限，心喜甚，不觉屐齿之折。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S31" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S31" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S31" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S32">
+    <header>
+      <span class="code">S32</span>
+      <span class="story">完璧归赵 · 第 3 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>秦昭王仗着国力强横，得璧之后不肯交割十五城；蔺相如与之对立，设计把和氏璧取回。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>秦昭王守信，依约把十五城交割给赵国；蔺相如献上和氏璧，双方顺利完成交换。</p></div>
+    </div>
+    <blockquote class="text">秦昭王既已践约，命有司具符节，择日发使入赵，共定疆界。临行，昭王召蔺相如至章台，置酒相待。酒酣，昭王执爵而言曰：“寡人闻赵有良将廉颇，勇冠三军；今又有蔺子，智勇兼资。赵王得此二人，何忧秦哉？”相如避席再拜曰：“大王过誉。臣闻明主不以其国强而凌弱，不以己之智而骄人。今大王割城践约，天下莫不称仁。秦赵之交，当如砥柱之固，非独一璧之故也。”昭王抚掌大笑，赐相如金百镒，锦十匹，曰：“善。寡人当与赵王共守此盟，使两国之民，不见兵革之患。”</p><p>相如辞归，昭王亲送至咸阳门外。渭水之滨，旌旗蔽日，秦之群臣皆列道而送。相如登车，回望咸阳宫阙，喟然叹曰：“秦伯之信，虽古之盟主不能过也。天下将由此知秦之可亲，赵之可托矣。”及至邯郸，赵王郊迎三十里，拜相如为上大夫，赐第宅于城中，荣宠冠于群臣。自此秦赵交好，边境晏然，十五城之民，始得安枕而卧。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S32" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S32" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S32" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S33">
+    <header>
+      <span class="code">S33</span>
+      <span class="story">张骞出使西域 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>张骞脱身后先到大宛国，大宛王礼遇他，双方交好。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>张骞脱身后先到乌孙国，乌孙昆莫礼遇他，双方交好。</p></div>
+    </div>
+    <blockquote class="text">张骞既留乌孙，日望诸副使还报，然久无音信。昆莫虽礼遇之，终以匈奴为虑，未肯显与汉通。张骞乃谓甘父曰：“乌孙迟疑，事恐不谐。吾等羁留异域，岁月如流，若不亲历诸国，何以报命天子？”甘父曰：“然则奈何？”张骞曰：“吾欲亲往大宛，观其国势，说其王通汉。若大宛向风，则康居、大月氏诸国可次第而至也。”</p><p>甘父曰：“君侯持节，不可轻动。且大宛去此千里，道阻且长，倘有疏虞，如汉命何？”张骞曰：“吾意已决。汝可留此，持节以待诸副使还报。若吾不还，汝当持节归汉，以吾所历西域诸国地形、风俗、强弱，悉奏天子。”甘父泣曰：“甘父随君侯万里，生死同之，安忍独留？”张骞曰：“非汝不能持此节。节在，则汉命在。汝勿复言。”</p><p>乃择日辞昆莫，昆莫曰：“汉使何往？”张骞曰：“闻大宛多善马，欲往观之。”昆莫曰：“大宛去此甚远，道经康居，康居与匈奴通，汉使慎之。”张骞谢曰：“谨受教。”遂与甘父别，独与数骑西行。甘父持汉节立于帐外，望其去远，节旄尽落而持之愈恭，乌孙译使见之，莫不叹息。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S33" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S33" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S33" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S34">
+    <header>
+      <span class="code">S34</span>
+      <span class="story">胡服骑射 · 第 4 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>赵武灵王命在代郡先行试行胡服骑射，谋臣肥义在代地主持，命军民改穿胡服、学习骑射。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>赵武灵王命在九原先行试行胡服骑射，谋臣肥义在九原主持，命军民改穿胡服、学习骑射。</p></div>
+    </div>
+    <blockquote class="text">武灵王既命驾北巡，遂发邯郸，西行出井陉，逾太行而抵代郡。一路所见，边民渐有胡服窄袖者，或驱马于野，或弯弓于泽，虽未尽改旧俗，然较之中土，已觉气象一新。武灵王顾谓从者曰：“昔者先王取蔺、郭狼，败林人于荏，功未遂而身殁。今观代郡之民，便骑善射，若因势利导，何患强兵之不立？”从者皆称善。</p><p>及至代郡，肥义与代相率骑士三队迎于九原之野。武灵王登高台以观之，见骑士皆胡服窄袖，驰骋如飞，弓马娴熟，三队更迭而进，进退有节，望之若一。武灵王大悦，召肥义、代相前，劳之曰：“卿等不负寡人。新制之行，自代郡始，可谓得其所矣。”肥义对曰：“此皆王命之明，臣等何功之有？然臣观代郡之民，虽渐从胡服，犹有疑者，请王亲阅骑士，以坚其志。”武灵王曰：“善。”乃命骑士列阵，亲乘胡马，率三队驰骋于九原之上，弯弓射雁，三发三中，观者莫不叹服。由是代郡之民，争趋胡服骑射，新制遂行。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S34" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S34" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S34" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S35">
+    <header>
+      <span class="code">S35</span>
+      <span class="story">负荆请罪 · 第 3 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>赵国决意东出伐齐，廉颇为将攻拔齐国的平陆，蔺相如在邯郸居中调度，二人同心。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>赵国决意南出伐魏，廉颇为将攻拔魏国的邺城，蔺相如在邯郸居中调度，二人同心。</p></div>
+    </div>
+    <blockquote class="text">廉颇既列阵城下，按兵不动，欲待魏人自出。然三日过去，城中寂然，惟见炊烟渐稀，知彼粮道尚通，汲道虽断，犹有储水可支。蔺相如乃谓廉颇曰：“将军，魏人闭门不出，是欲老我师也。若迁延日久，魏之援兵自大梁来，腹背受敌，危矣。昔孙武子云‘兵贵胜，不贵久’，今当示弱以诱之。”</p><p>廉颇颔首，遂命军中偃旗息鼓，士卒解甲坐卧，若将退者。又使数十骑近城挑战，骂詈守将，辱其先人。守将本无谋略，闻骂大怒，又见赵军懈弛，遂尽驱城中疲卒，开南门而出。蔺相如在高阜望见，急麾旗为号。廉颇伏兵四起，截其归路，魏军大乱，自相蹂践，溺于漳水者不可胜数。守将仅以身免，遁入城中，闭门死守，再不敢出。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S35" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S35" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S35" value="说不准"> 说不准</label>
+    </div>
+  </article>
+
+  <article class="card" data-code="S36">
+    <header>
+      <span class="code">S36</span>
+      <span class="story">荆轲刺秦 · 第 5 段</span>
+    </header>
+    <div class="settings">
+      <div class="setting a"><b>【分支甲】（正文应遵守的设定）</b><p>燕国决定割让督亢之地给秦国以求和。</p></div>
+      <div class="setting b"><b>【分支乙】（不应出现在正文里）</b><p>燕国决定割让辽西之地给秦国以求和。</p></div>
+    </div>
+    <blockquote class="text">燕王喜既部署既定，乃独处殿中，秉烛达旦。忽报秦使复至，索督亢图籍益急，且言李信已遣偏师渡易水，屯于南岸，距蓟城不过百里。王闻之，手颤不能持烛，顾谓左右曰：“秦人贪暴，得寸进尺，今虽献辽西，彼犹未餍。若更索督亢，则蓟城以北，尽为秦有矣。”</p><p>左右皆默然。王乃召有司问曰：“宗庙重器，已发几乘？”对曰：“已发三十乘，余者尚在装束。”王曰：“速之！今夜必尽发，毋使秦人觉之。”又令边军多张旗帜于易水南岸，夜举火为疑兵，使秦人莫测虚实。部署既毕，王抚剑叹曰：“寡人老矣，不能亲执干戈以卫社稷，唯赖诸卿戮力，或可延燕祚于万一。”言罢，泪下沾襟，左右皆掩泣不敢仰视。</p><p>忽有飞骑自西来，报曰：“鞠武先生已至代郡，代君许发兵三万，屯于常山之麓，以为声援。”王闻之，稍舒颜色，然旋又蹙额曰：“代兵虽许，齐楚未定，远水难救近火。秦使坐索图籍，何以应之？”左右莫对。王乃命取督亢旧图，择其残阙者，更绘新图，以应秦使，而真图籍则密藏之，随宗庙重器同赴辽东。</blockquote>
+    <div class="choose">
+      <label><input type="radio" name="S36" value="污染"> 污染（出现了乙分支的事）</label>
+      <label><input type="radio" name="S36" value="干净"> 干净（只有甲分支的事）</label>
+      <label><input type="radio" name="S36" value="说不准"> 说不准</label>
+    </div>
+  </article>
+</div>
+<div id="bar">
+  <span id="count">已答 0 / 36</span>
+  <span class="grow"></span>
+  <button id="reset">清空重来</button>
+  <button id="export" class="primary">导出 CSV</button>
+</div>
+<script>
+  var CODES = ["S01","S02","S03","S04","S05","S06","S07","S08","S09","S10","S11","S12","S13","S14","S15","S16","S17","S18","S19","S20","S21","S22","S23","S24","S25","S26","S27","S28","S29","S30","S31","S32","S33","S34","S35","S36"];
+  var FP = "a5771bc6";
+  var KEY = 'gushi_human_eval_v1';
+  var FPKEY = KEY + '__fp';
+  var state = {};
+
+  // 样本指纹校验：重新抽样后编码会指向不同条目，旧的作答若继续沿用就会**静默错位**
+  // （把 A 条的判定记到 B 条头上）。所以指纹不一致时一律丢弃旧作答并明示。
+  try {
+    var savedFp = localStorage.getItem(FPKEY);
+    if (savedFp === FP) {
+      state = JSON.parse(localStorage.getItem(KEY) || '{}');
+    } else if (localStorage.getItem(KEY)) {
+      localStorage.removeItem(KEY);
+      setTimeout(function () {
+        alert('盲评表已更新（样本重新抽样过）。此前的作答与当前编码无法对应，已自动清空，请重新评。');
+      }, 100);
+    }
+    // 只保留当前表里存在的编码，防止残留键干扰
+    var clean = {};
+    CODES.forEach(function (c) { if (state[c]) clean[c] = state[c]; });
+    state = clean;
+    localStorage.setItem(FPKEY, FP);
+  } catch (e) { state = {}; }
+
+  function paint() {
+    var n = 0;
+    CODES.forEach(function (c) {
+      var card = document.querySelector('[data-code="' + c + '"]');
+      var v = state[c];
+      if (v) n++;
+      card.classList.toggle('done', !!v);
+      card.querySelectorAll('input').forEach(function (i) { i.checked = (i.value === v); });
+    });
+    document.getElementById('count').textContent = '已答 ' + n + ' / ' + CODES.length;
+    document.getElementById('export').disabled = (n < CODES.length);
+  }
+
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t && t.type === 'radio') {
+      state[t.name] = t.value;
+      localStorage.setItem(KEY, JSON.stringify(state));
+      paint();
+    }
+  });
+
+  document.getElementById('reset').addEventListener('click', function () {
+    if (!confirm('确定清空全部作答？')) return;
+    state = {};
+    localStorage.removeItem(KEY);
+    paint();
+  });
+
+  document.getElementById('export').addEventListener('click', function () {
+    var lines = ['编码,人工判定'];
+    CODES.forEach(function (c) { lines.push(c + ',' + (state[c] || '')); });
+    var blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '人工判定.csv';
+    a.click();
+  });
+
+  paint();
+</script>
+</body>
+</html>

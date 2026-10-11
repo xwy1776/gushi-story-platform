@@ -171,6 +171,9 @@ export async function POST(
       },
     });
 
+    // C4: 本段角色发现已完成（发现发生在建段之前）——标记供生图端等待追平
+    await characterManager.markCharacterDiscoveryDone(storyId, newSegment.id);
+
     if (mentionedIds.length > 0) {
       characterManager
         .inferAndUpdateStatesForSegment(storyId, newSegment.id, aiResponse, (p: string) =>
@@ -179,10 +182,13 @@ export async function POST(
         .catch((e: any) => console.warn('[continue] 角色状态更新失败:', e));
     }
 
-    // 场景状态更新必须 await，确保后续 images/generate 能读到最新值
+    // 场景状态更新必须 await，确保后续 images/generate 能读到最新值（C1: 带段落 ID 标记新鲜度）
     try {
-      await directorManager.updateSceneState(storyId, aiResponse, (p: string) =>
-        callAIText(p, { maxTokens: 1200, story: story as any })
+      await directorManager.updateSceneState(
+        storyId,
+        aiResponse,
+        (p: string) => callAIText(p, { maxTokens: 1200, story: story as any }),
+        newSegment.id,
       );
     } catch (e) {
       console.warn('[continue] 场景状态更新失败:', e);

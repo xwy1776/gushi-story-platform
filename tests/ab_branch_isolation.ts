@@ -16,11 +16,16 @@
  * （v1 的两侧里总有一侧是史实，模型的**先验**会替记忆答题；v2 起 20 组分叉
  *   的两侧一律不是标准历史，分支只能由注入的记忆决定。）
  *
- * 只在**分支 A** 上续写 5 段。两档对照：
+ * 只在**分支 A** 上续写 5 段。两档内部对照：
  *
  *   `isolated`（本文做法）  A 的检索空间只含 A 的事实，B 的事实带 branchId=B，看不见
  *   `shared`  （单线记忆）  A 和 B 的事实都塞进同一个检索空间
  *                           —— 这正是 SCORE / DOME 那种没有分支维度的系统会发生的事
+ *
+ * 另加一档**外部 RAG 基线**：
+ *
+ *   `rag`     （外部检索）  A、B 的事实进入同一个内存检索池，按当前上下文检索 top-k
+ *                           它比 `shared` 更接近“检索式单线记忆”的真实系统。
  *
  * ── 指标 ──────────────────────────────────────────────────────────
  * **跨分支污染率** = A 分支续写段落中，引用了 B 分支独有事件/状态的段落占比。
@@ -44,8 +49,8 @@
  *   # 扩样后只跑新增的 8 组（分叉是追加在末尾的：0..11 是原有 12 组，12..19 是新增）
  *   npx tsx tests/ab_branch_isolation.ts --from=12 --stories=8 --rounds=1 --segments=2 --tag=pilot
  *
- *   # 正式跑：20 组冲突分支 × 2 档 × 5 段 × 3 轮
- *   npx tsx tests/ab_branch_isolation.ts --stories=20 --segments=5 --rounds=3
+ *   # 正式跑：20 组冲突分支 × 3 档 × 5 段 × 3 轮
+ *   npx tsx tests/ab_branch_isolation.ts --stories=20 --segments=5 --rounds=3 --arms=isolated,shared,rag
  *
  * 结果输出到 Docs/ablation/branch_isolation_*.json 与 .md
  */
@@ -58,17 +63,19 @@ import { knowledgeGraph } from '../src/lib/knowledge-graph';
 import { narrativeStateTracker } from '../src/lib/narrative-state-tracker';
 import { getOrderedChain } from '../src/lib/chain-helpers';
 import { callAIText } from '../src/lib/ai-client';
+import { MemoryRAGBaseline } from '../src/baseline-rag-memory';
 import { splitSimilarity, stats, trigramSimilarity } from './ab_ablation';
 
 // ============================================================================
 // 档位
 // ============================================================================
 
-type Isolation = 'isolated' | 'shared';
+type Isolation = 'isolated' | 'shared' | 'rag';
 
 const ARM_LABELS: Record<Isolation, string> = {
   isolated: '分支隔离（本文）',
   shared: '单线记忆（SCORE/DOME 式）',
+  rag: 'RAG 单线检索（外部基线）',
 };
 
 const SYSTEM_PROMPT = '你是一位专业的文学作家。请用中文回答，用现代白话文写作，保持与前文的风格和情节连续性。';
@@ -864,8 +871,12 @@ const openingSegId = (def: ForkDef): string => `seg_fork_${def.story}_main_000`;
  * shared 档刻意不去改库代码：把 B 的事实也塞进 A 的检索空间，正是
  * 「一个故事只有一份记忆、没有分支维度」的系统会发生的事。
  *
- * `isolation` 参数只用来决定**角色登记表登记哪些角色**（见下面 charNames 处的注释）。
- * 两档种进记忆的事实完全相同，差别仍然只在 branchId。
+ * `rag` 档不启用项目内置状态表/图谱，而是把 A、B 的事实放进同一个外部检索池。
+ * 它模拟“只有单线 RAG 记忆”的既有系统，是本文方法的外部对比。
+ *
+ * `isolation` 参数也决定**角色登记表登记哪些角色**（Character 表没有 branchId）。
+ * `shared` 和 `rag` 都可能看到乙分支的名字；前者的泄漏来自直接注入，
+ * 后者的泄漏来自检索命中。
  */
 async function setupFork(def: ForkDef, isolation: Isolation): Promise<{ storyId: string; branchId: string }> {
   const titleKey = `跨分支·${def.story}`;
@@ -903,7 +914,7 @@ async function setupFork(def: ForkDef, isolation: Isolation): Promise<{ storyId:
   // 垓下之围 isolated 档两段都命中了乙分支的 marker「周殷」，judge 却判干净：
   // 模型只是提到了这个名字，并没有采纳乙的事实。关键词指标因此假阳性，
   // 而这一档本来就不该看见这个名字。
-  const branchesToRegister = isolation === 'isolated' ? [def.branchA] : [def.branchA, def.branchB];
+  const branchesToRegister = isolation === 'shared' ? [def.branchA, def.branchB] : [def.branchA];
   const charIds: string[] = [];
   const charNames = new Set<string>();
   for (const b of branchesToRegister) {
@@ -954,13 +965,35 @@ async function runFork(
   def: ForkDef, isolation: Isolation, storyId: string, branchId: string, story: any, segmentsPerArm: number,
 ): Promise<RunResult> {
   const segs: SegResult[] = [];
+  delete process.env.MEMORY_STATE_TABLE;
+  delete process.env.MEMORY_KNOWLEDGE_GRAPH;
+  if (isolation === 'rag') {
+    process.env.MEMORY_MODULES_ENABLED = 'false';
+  } else {
+    delete process.env.MEMORY_MODULES_ENABLED;
+  }
+
+  const ragStore = isolation === 'rag' ? new MemoryRAGBaseline() : null;
+  if (ragStore) {
+    await ragStore.addTexts([
+      { id: 'shared-opener', text: FORK_OPENERS[def.story], branchId: 'main' },
+      { id: 'branch-a-facts', text: def.branchA.factsForJudge, branchId: 'A' },
+      { id: 'branch-b-facts', text: def.branchB.factsForJudge, branchId: 'B' },
+    ]);
+    console.log(`   （RAG 单线检索：${ragStore.embeddingEnabled ? 'embedding' : 'BM25'}，A/B 事实共享检索池）`);
+  }
 
   for (let i = 1; i <= segmentsPerArm; i++) {
     const chain = await getOrderedChain(storyId, branchId);
     const tail = chain[chain.length - 1];
+    const externalMemoryContext = ragStore
+      ? await ragStore.retrieve(`${FORK_OPENERS[def.story]}\n${tail.content}`, 3)
+      : undefined;
     const { prompt } = await buildFullPrompt({
       storyId, branchId, tailSegment: tail as any, chain: chain as any,
       storyTitle: story.title, storyDescription: story.description ?? undefined,
+      externalMemoryContext,
+      externalMemoryLabel: '单线 RAG 检索记忆',
     });
 
     const content = await callAIText(prompt, { systemPrompt: SYSTEM_PROMPT, maxTokens: 700, story });
@@ -973,12 +1006,16 @@ async function runFork(
       } as any,
     });
 
-    // 记忆增量更新：两档都开着，因为比较的是「隔离策略」而不是「记忆开关」
-    try { await narrativeStateTracker.updateFromSegment(storyId, branchId, segId, content); } catch {}
-    try {
-      await knowledgeGraph.extractFromSegment(content, branchId, segId, (p: string) =>
-        callAIText(p, { maxTokens: 1500, story }));
-    } catch {}
+    // 内置记忆只在前两档更新；RAG 档只把新段落写回自己的检索池。
+    if (isolation !== 'rag') {
+      try { await narrativeStateTracker.updateFromSegment(storyId, branchId, segId, content); } catch {}
+      try {
+        await knowledgeGraph.extractFromSegment(content, branchId, segId, (p: string) =>
+          callAIText(p, { maxTokens: 1500, story }));
+      } catch {}
+    } else {
+      await ragStore?.addTexts([{ id: segId, text: content, branchId: 'A' }]);
+    }
 
     const hitMarkers = def.branchB.markers.filter(m => content.includes(m));
     const judge = await judgeContamination(content, def.branchA, def.branchB);
@@ -1123,7 +1160,9 @@ export function pairedT(diffs: number[]): { n: number; df: number; mean: number;
 
 function buildMarkdown(rounds: RunResult[][], files: string[]): string {
   const stories = [...new Set(rounds.flat().map(r => r.story))];
-  const arms: Isolation[] = ['isolated', 'shared'];
+  const armOrder: Isolation[] = ['isolated', 'shared', 'rag'];
+  const present = new Set(rounds.flat().map(r => r.isolation));
+  const arms = armOrder.filter(arm => present.has(arm));
   const L: string[] = [];
 
   L.push('# 跨分支污染实验：分支隔离是否真的抑制了跨分支事实泄漏');
@@ -1238,6 +1277,33 @@ function buildMarkdown(rounds: RunResult[][], files: string[]): string {
     }
   }
 
+  const ragJd = series('rag', 'judgeContaminationRate');
+  if (isoJd.length > 0 && ragJd.length > 0) {
+    const pairs = stories
+      .map(s => {
+        const base = perStory('isolated', s, 'judgeContaminationRate');
+        const rag = perStory('rag', s, 'judgeContaminationRate');
+        return base === null || rag === null ? null : { story: s, diff: rag - base };
+      })
+      .filter((p): p is { story: string; diff: number } => p !== null);
+    if (pairs.length >= 2) {
+      const st = pairedT(pairs.map(p => p.diff));
+      const pv = tTwoTailP(st.t, st.df);
+      const wins = pairs.filter(x => x.diff > 1e-9).length;
+      const flat = pairs.filter(x => Math.abs(x.diff) <= 1e-9).length;
+      const losses = st.n - wins - flat;
+      L.push('### 1-0b、外部 RAG 基线对比（配对单位 = 故事）');
+      L.push('');
+      L.push(`RAG 单线检索的 Judge 污染率为 **${(meanOf(ragJd) * 100).toFixed(0)}%**，`
+        + `相对分支隔离高 **${(st.mean * 100).toFixed(0)} 个百分点**。`);
+      L.push('');
+      L.push(`配对 t = ${st.t.toFixed(2)}，df = ${st.df}，`
+        + `双尾 p = ${pv < 1e-4 ? pv.toExponential(2) : pv.toFixed(4)}；`
+        + `逐故事 ${wins} 胜 ${flat} 平 ${losses} 负。`);
+      L.push('');
+    }
+  }
+
   L.push('### 1-1、逐故事支配关系（关键：隔离档有没有在任何故事上更差）');
   L.push('');
   L.push('| 故事 | 分支甲 | 分支乙 | 隔离档 Judge 污染率 | 单线档 Judge 污染率 | 谁更好 |');
@@ -1324,7 +1390,7 @@ function parseArgs() {
     // （`--pick` 仍保留，用于按名字精确定位）。
     from: parseInt(get('from', '0'), 10),
     segments: parseInt(get('segments', '5'), 10),
-    arms: get('arms', 'isolated,shared').split(',').map(s => s.trim()).filter(Boolean) as Isolation[],
+    arms: get('arms', 'isolated,shared,rag').split(',').map(s => s.trim()).filter(Boolean) as Isolation[],
     reportOnly: argv.includes('--report-only'),
     // 只纳入文件名含指定子串的结果文件（逗号分隔）。
     // 用途：5 组和 12 组是两批不同的数据，混在一个汇总里平均是错的。
@@ -1456,10 +1522,11 @@ async function main() {
 
           // isolated：甲的事实挂甲，乙的事实挂乙 → 甲看不见乙
           // shared   ：甲和乙的事实**都**挂甲 → 甲的检索空间里同时有两套互斥设定
+          // rag      ：内置记忆关闭，甲乙事实都进外部 RAG 检索池（见 runFork）
           await seedFacts(storyId, branchId, def.branchA, 'a');
           if (isolation === 'isolated') {
             await seedFacts(storyId, `branch_fork_${def.story}_B`, def.branchB, 'b');
-          } else {
+          } else if (isolation === 'shared') {
             await seedFacts(storyId, branchId, def.branchB, 'b');
             console.log('    （单线档：乙的事实也挂到了甲的检索空间）');
           }

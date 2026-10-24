@@ -168,6 +168,8 @@ export async function POST(request: NextRequest) {
             era: era || '',
             role,
             traits,
+            // B2: 独立外貌字段（可选），与 traits 分离存储；C5：截断上限与结构化外观对齐（480）
+            appearance: typeof char.appearance === 'string' ? char.appearance.trim().slice(0, 480) : undefined,
             storyId: story.id,
           });
           characterIds.push(newChar.id);

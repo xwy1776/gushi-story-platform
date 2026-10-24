@@ -4,6 +4,7 @@ import path from "path";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
+import { splitLegacyTraitFields } from "../src/lib/character-fields";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 
@@ -145,17 +146,21 @@ async function main() {
   let charCount = 0;
   for (const c of characters) {
     if (!c.storyId) continue;
+    // B2: 旧前缀 traits（appearance:/canonical:）归一化到结构化字段
+    const { cleanTraits, legacyAppearance, legacyCanonicalName } = splitLegacyTraitFields(c.traits);
     await prisma.character.create({
       data: {
         id: c.id,
         name: c.name,
         era: c.era || "",
         role: c.role || "supporting",
-        traits: c.traits || [],
+        traits: cleanTraits as any[],
         speechPatterns: c.speechPatterns || "",
         relationships: c.relationships || [],
         stateHistory: c.stateHistory || [],
         coreMotivation: c.coreMotivation || "",
+        appearance: c.appearance || legacyAppearance || "",
+        canonicalName: c.canonicalName || legacyCanonicalName || "",
         storyId: c.storyId,
         createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
         updatedAt: c.updatedAt ? new Date(c.updatedAt) : new Date(),

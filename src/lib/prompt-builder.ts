@@ -36,6 +36,12 @@ export interface BuildPromptOptions {
   branchMode?: BranchMode;
   /** User-specified direction for branch creation */
   branchDirection?: string;
+  /**
+   * 外部检索基线召回的内容。用于 RAG / BM25 对比实验；
+   * 普通续写不要传，避免与内置记忆重复注入。
+   */
+  externalMemoryContext?: string;
+  externalMemoryLabel?: string;
 }
 
 /**
@@ -229,6 +235,8 @@ export async function buildFullPrompt(options: BuildPromptOptions): Promise<Buil
     tokenBudget = 6000,
     branchMode: rawBranchMode,
     branchDirection,
+    externalMemoryContext,
+    externalMemoryLabel,
   } = options;
 
   // 自动推断 branchMode
@@ -490,6 +498,14 @@ export async function buildFullPrompt(options: BuildPromptOptions): Promise<Buil
 
   // ─── 6. 分支记忆 ───
   if (hasBranchMemory) parts.push(branchPrompt);
+
+  // ─── 6.5 外部检索记忆（RAG / BM25 对比实验） ───
+  if (externalMemoryContext?.trim()) {
+    parts.push(
+      `## ${externalMemoryLabel || '外部检索记忆'}\n`
+      + externalMemoryContext.trim(),
+    );
+  }
 
   // ─── 7. 导演覆盖（提前到前文之前，用户意图优先级） ───
   try {

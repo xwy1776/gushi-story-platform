@@ -364,6 +364,20 @@ ${styleHint}，续写下一段（150-300字），与前文情节连续。`;
           // 后处理全部 fire-and-forget，不阻塞 [DONE]
           const postProcess = (async () => {
             try {
+              // 场景状态更新最先执行（C1/C4 生图同步）：不依赖角色发现，先行落库可让
+              // "刚续写立即生图" 的读端等待尽快满足；角色发现是长链（多次 LLM + 可能的
+              // 联网搜索），此前排在它后面会把追平时间拖到十几秒以上、超出读端等待上限。
+              try {
+                await directorManager.updateSceneState(
+                  storyId,
+                  fullContent,
+                  (p: string) => callAIText(p, { maxTokens: 1200, story: story as any }),
+                  newSegment.id,
+                );
+              } catch (e) {
+                console.warn('[stream-continue] 场景状态更新失败:', e);
+              }
+
               // 角色发现与注册
               let mentionedIds: string[] = [];
               try {
@@ -389,6 +403,9 @@ ${styleHint}，续写下一段（150-300字），与前文情节连续。`;
                 console.warn('[stream-continue] 角色发现/注册失败:', e);
               }
 
+              // C4: 标记角色发现已完成（供生图端等待追平，防两侧并发注册同一段的新角色）
+              await characterManager.markCharacterDiscoveryDone(storyId, newSegment.id);
+
               // 摘要预生成
               contextSummarizer.generateSegmentSummary(newSegment as any, [...chain, newSegment] as any, story?.genre ?? undefined)
                 .catch((e: any) => console.warn('[stream-continue] 摘要预生成失败:', e));
@@ -400,15 +417,6 @@ ${styleHint}，续写下一段（150-300字），与前文情节连续。`;
                     callAIText(p, { maxTokens: 1200, story: story as any })
                   )
                   .catch((e: any) => console.warn('[stream-continue] 角色状态更新失败:', e));
-              }
-
-              // 场景状态更新
-              try {
-                await directorManager.updateSceneState(storyId, fullContent, (p: string) =>
-                  callAIText(p, { maxTokens: 1200, story: story as any })
-                );
-              } catch (e) {
-                console.warn('[stream-continue] 场景状态更新失败:', e);
               }
 
               // 事件提取

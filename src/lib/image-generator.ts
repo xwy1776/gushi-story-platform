@@ -9,7 +9,7 @@
  * - 重试 & 降级机制（失败返回占位图，不阻塞主流程）
  * - 图片本地缓存（保存到 public/generated-images/）
  * - 强力文字抑制（enforceNoTextInPrompt，兼容 GLM/cogview）
- * - 角色视觉一致性（seed + CharacterVisualHint）
+ * - 角色视觉一致性（seed + CharacterVisualHint + 冻结外观锚点，见 image-prompt-template.ts）
  * - AI 上下文感知场景提取（extractSceneDescriptionsWithAI）
  */
 
@@ -18,6 +18,14 @@ import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { extractJsonFromAI } from './ai-client';
 import type { ReferenceImageHint } from './reference-image-search';
+import { sampleSegmentText } from './text-window';
+import {
+  buildAnchorIndex,
+  buildCharacterAnchors,
+  composeConsistentScenePrompt,
+  resolveSceneAnchorLines,
+  translateAnchorsToEnglish,
+} from './image-prompt-template';
 import {
   IMAGE_STYLES,
   type ImageStyle,
@@ -463,7 +471,7 @@ export interface GenerateImagesOptions {
   storyDescription?: string;
   /** 可选：AI 文本调用函数，若提供则优先用它提取/翻译场景为高质量英文 prompt */
   callAIFn?: (prompt: string) => Promise<string>;
-  /** 可选：已登记角色的视觉速查表，用于 AI 翻译器还原角色造型（尤其是同人 IP） */
+  /** 可选：已登记角色列表 —— appearance 会被冻结成跨图外观锚点（C3），同时供场景提取参考（尤其是同人 IP） */
   characters?: CharacterVisualHint[];
   /** 可选：近 N 段摘要（中文），注入到场景提取 prompt 里，让镜头更贴近上下文 */
   contextSummary?: string;
@@ -471,8 +479,20 @@ export interface GenerateImagesOptions {
   sceneStateEn?: string;
   /** 可选：图片生成 seed，锁定视觉一致性（同一场景/角色组合下跨段复用） */
   seed?: number;
+  /**
+   * 可选：同段多张图的 seed 步进（C5）。
+   * 默认 1 = 每张 seed+i（构图各异，脸随 i 变化）；0 = 同段共享同一 seed
+   * （identity 策略使用：脸/体态稳定，构图差异交给各镜头的提示词）。
+   */
+  seedStride?: number;
   /** 可选：同人 IP 参考图路径列表，注入场景提取 prompt */
   referenceImages?: ReferenceImageHint[];
+  /**
+   * 可选：预构建的镜头清单（对照实验/复现用，如"优化前"旧管线行为复现）；提供时跳过场景提取。
+   * 注意：①是否附加角色外观锚点仍由 characters 参数决定（复现旧行为时不传 characters 即可）；
+   * ②preset 镜头跳过「守卫终检」（保证旧管线行为可逐字复现，包括其退化产物）。
+   */
+  presetScenes?: SceneDescription[];
 }
 
 /**
@@ -481,7 +501,7 @@ export interface GenerateImagesOptions {
 export async function generateImagesForSegment(
   options: GenerateImagesOptions
 ): Promise<GeneratedImage[]> {
-  const { segmentId, segmentContent, style = 'auto', maxImages = 3, genre, storyDescription, callAIFn, characters, contextSummary, sceneStateEn, seed, referenceImages } = options;
+  const { segmentId, segmentContent, style = 'auto', maxImages = 3, genre, storyDescription, callAIFn, characters, contextSummary, sceneStateEn, seed, seedStride = 1, referenceImages, presetScenes } = options;
   const config = getConfig();
 
   if (!config.apiKey) {
@@ -489,10 +509,12 @@ export async function generateImagesForSegment(
     return [];
   }
 
-  // 2.2 提取场景描述：有 AI 函数则走 AI（更精准），否则退回启发式
-  let scenes = callAIFn
-    ? (await extractSceneDescriptionsWithAI(segmentContent, callAIFn, { genre, storyDescription, characters, contextSummary, sceneStateEn, referenceImages })).slice(0, maxImages)
-    : extractSceneDescriptions(segmentContent).slice(0, maxImages);
+  // 2.2 场景描述来源：预构建镜头（对照实验/复现）> AI 提取（更精准）> 启发式
+  let scenes = presetScenes && presetScenes.length > 0
+    ? presetScenes.slice(0, maxImages)
+    : callAIFn
+      ? (await extractSceneDescriptionsWithAI(segmentContent, callAIFn, { genre, storyDescription, characters, contextSummary, sceneStateEn, referenceImages })).slice(0, maxImages)
+      : extractSceneDescriptions(segmentContent).slice(0, maxImages);
 
   if (scenes.length === 0) {
     console.warn('[image-generator] 未从段落中提取到有效场景描述');
@@ -500,10 +522,39 @@ export async function generateImagesForSegment(
   }
 
   // 2.3 如果场景 prompt 含中文（启发式回退），用 AI 翻译为英文 diffusion prompt，
-  //     避免后续 enforceNoTextInPrompt 把场景内容全部剥掉导致只剩风格模板
+  //     避免后续 enforceNoTextInPrompt 把场景内容全部剥掉导致只剩风格模板。
+  //     守卫加固：翻译结果逐条过有效性校验；不合格 / 缺失的条目改用英文兜底脚手架
+  //     （兜底文本量仍不足的条目会在装配末端的「守卫终检」被拦下）。
+
+  // 英文兜底脚手架：用 sceneStateEn + genre + 故事简介拼一个英文底座
+  //（比 enforceNoTextInPrompt 剥光所有中文后只剩风格模板要好得多）
+  const buildEnglishScaffold = (scene: SceneDescription): string => {
+    const typeHint: Record<string, string> = {
+      scene: 'A wide cinematic scene',
+      character: 'A character portrait',
+      object: 'A close-up detailed shot',
+    };
+    const parts: string[] = [typeHint[scene.type] || 'A cinematic scene'];
+
+    // 用 sceneStateEn 补充环境描述
+    if (sceneStateEn && sceneStateEn.trim()) {
+      parts.push(`environment: ${sceneStateEn.trim()}`);
+    }
+    // 用 genre 补充题材
+    if (genre) {
+      parts.push(`genre: ${genre}`);
+    }
+    // 用 storyDescription 补充故事背景（取前 100 字符）
+    if (storyDescription) {
+      parts.push(`story context: ${storyDescription.slice(0, 100)}`);
+    }
+    // 段落片段大部分是中文（会被 CJK 剥离），保留是为了其中混入的拉丁字符
+    return `${parts.join(', ')}, ${segmentContent.slice(0, 80)}`;
+  };
+
   const scenesHaveCJK = scenes.some(s => /[\u4e00-\u9fff]/.test(s.prompt));
   if (scenesHaveCJK) {
-    let translated = false;
+    const translatedPrompts: (string | null)[] = scenes.map(() => null);
 
     // 优先：用 AI 翻译
     if (callAIFn) {
@@ -515,15 +566,20 @@ export async function generateImagesForSegment(
         const transText = await callAIFn(translatePrompt);
         if (transText && transText.trim()) {
           const enPrompts = extractJsonFromAI<string[]>(transText);
-          if (Array.isArray(enPrompts) && enPrompts.some(p => typeof p === 'string')) {
-            scenes = scenes.map((s, i) => ({
-              ...s,
-              prompt: typeof enPrompts[i] === 'string'
-                ? (enPrompts[i] as string).trim()
-                : s.prompt,
-            }));
-            translated = true;
-            console.log('[image-generator] 启发式场景已翻译为英文 prompt');
+          if (Array.isArray(enPrompts)) {
+            scenes.forEach((_, i) => {
+              const cand = typeof enPrompts[i] === 'string' ? (enPrompts[i] as string).trim() : '';
+              if (isValidEnPrompt(cand)) translatedPrompts[i] = cand;
+            });
+            const okCount = translatedPrompts.filter(Boolean).length;
+            if (okCount > 0) {
+              console.log(`[image-generator] 启发式场景已翻译为英文 prompt（${okCount}/${scenes.length} 条）`);
+            }
+            if (okCount < scenes.length) {
+              console.warn(
+                `[image-generator][守卫] ${scenes.length - okCount} 条翻译未通过有效性校验，改用英文兜底脚手架`,
+              );
+            }
           }
         } else {
           console.warn('[image-generator] AI 翻译返回空响应');
@@ -533,51 +589,65 @@ export async function generateImagesForSegment(
       }
     }
 
-    // 兜底：AI 翻译也失败时，用 sceneStateEn + genre + segmentContent 拼接英文 prompt
-    // 比 enforceNoTextInPrompt 剥光所有中文后只剩风格模板要好得多
-    if (!translated) {
-      console.warn('[image-generator] AI 翻译失败，使用 sceneStateEn + genre 兜底构建英文 prompt');
-      scenes = scenes.map((scene) => {
-        const parts: string[] = [];
-        // 类型镜头前缀
-        const typeHint: Record<string, string> = {
-          scene: 'A wide cinematic scene',
-          character: 'A character portrait',
-          object: 'A close-up detailed shot',
-        };
-        parts.push(typeHint[scene.type] || 'A cinematic scene');
+    // 逐条装配：翻译有效 → 采用；否则用英文兜底脚手架
+    scenes = scenes.map((scene, i) => {
+      const tp = translatedPrompts[i];
+      if (tp) return { ...scene, prompt: tp };
+      return { ...scene, prompt: buildEnglishScaffold(scene) };
+    });
 
-        // 用 sceneStateEn 补充环境描述
-        if (sceneStateEn && sceneStateEn.trim()) {
-          parts.push(`environment: ${sceneStateEn.trim()}`);
-        }
+    if (translatedPrompts.every(p => !p)) {
+      console.warn('[image-generator] AI 翻译不可用，使用 sceneStateEn + genre 兜底构建英文 prompt');
+    }
+  }
 
-        // 用 genre 补充题材
-        if (genre) {
-          parts.push(`genre: ${genre}`);
-        }
+  // 守卫终检：无论场景来自哪条通道（AI 提取 / 兜底重写 / 启发式翻译 / 英文脚手架），
+  // 场景 prompt 经 CJK 剥离后仍须达到最小体量，否则一律不送生图 API —— 宁缺毋滥。
+  // （近空 prompt 会生成与段落完全无关的画面，污染图文一致性与后续读图分析。）
+  // presetScenes 为对照实验显式注入的复现镜头，跳过终检以保持实验可比性。
+  if (!(presetScenes && presetScenes.length > 0)) {
+    const rejected: string[] = [];
+    scenes = scenes.filter(s => {
+      if (isValidEnPrompt(s.prompt)) return true;
+      rejected.push(s.prompt.trim().slice(0, 60) || '(空)');
+      return false;
+    });
+    if (rejected.length > 0) {
+      console.warn(
+        `[image-generator][守卫] 终检拦截 ${rejected.length} 个低于阈值的场景 prompt（未发送生图 API）: ${rejected.join(' / ')}`,
+      );
+    }
+    if (scenes.length === 0) {
+      console.warn('[image-generator][守卫] 全部镜头未通过终检，本段跳过图片生成（不发送近空 prompt）');
+      return [];
+    }
+  }
 
-        // 用 storyDescription 补充故事背景
-        if (storyDescription) {
-          // 取前100字符的英文概要
-          parts.push(`story context: ${storyDescription.slice(0, 100)}`);
-        }
-
-        // 用段落内容的前80字作为粗略场景参考（会被 enforceNoTextInPrompt 剥掉中文，
-        // 但英文部分会保留）
-        const segSnippet = segmentContent.slice(0, 80);
-
-        return {
-          ...scene,
-          prompt: `${parts.join(', ')}, ${segSnippet}`,
-        };
-      });
+  // C3: 角色外观锚点 —— 冻结自 Character.appearance（B2 结构化字段），
+  // 逐字拼入每个相关镜头的 prompt，保证同一角色跨段落、跨图片外观一致。
+  // 中文外观（用户手填）批量翻译一次并按原文缓存，译文在同一进程内跨段稳定。
+  let anchorIndex = new Map<string, string>();
+  if (characters && characters.length > 0) {
+    const anchors = buildCharacterAnchors(characters);
+    let lines = anchors.map(a => a.line);
+    if (callAIFn) {
+      lines = await translateAnchorsToEnglish(lines, callAIFn);
+    }
+    anchorIndex = buildAnchorIndex(anchors.map((a, idx) => ({ ...a, line: lines[idx] ?? a.line })));
+    if (anchorIndex.size > 0) {
+      console.log(`[image-generator] 角色外观锚点已启用：${anchors.length} 个角色（跨段/跨图一致性）`);
     }
   }
 
   // 并行生成所有镜头：每个镜头独立重试 + 独立降级，避免一张失败拖累整体
   const renderOne = async (scene: SceneDescription, i: number): Promise<GeneratedImage> => {
-    const styledPromptRaw = applyStylePrompt(scene.prompt, style, {
+    // C3: 附加该镜头的角色外观锚点（无锚点时原样返回场景描述）
+    const anchorLines = resolveSceneAnchorLines(scene, anchorIndex);
+    const composedPrompt = composeConsistentScenePrompt({
+      scenePrompt: scene.prompt,
+      anchorLines,
+    });
+    const styledPromptRaw = applyStylePrompt(composedPrompt, style, {
       genre,
       description: storyDescription,
       segmentContent,
@@ -587,8 +657,9 @@ export async function generateImagesForSegment(
     console.log(`\n[image-generator] ===== 最终图片 prompt (scene ${i}) =====`);
     console.log(styledPrompt);
     console.log('[image-generator] ========================================\n');
-    // 同段内 3 张图用不同 seed（sceneSeed = baseSeed + i），保持角色一致但构图各异
-    const sceneSeed = typeof seed === 'number' ? seed + i : undefined;
+    // C5：同段多图 seed 步进——stride=1 时 seed+i（构图各异）；identity 策略下 stride=0
+    // （共享身份 seed，脸/体态稳定，构图差异由各镜头提示词承担）
+    const sceneSeed = typeof seed === 'number' ? seed + i * seedStride : undefined;
 
     let lastError: Error | null = null;
 
@@ -648,10 +719,6 @@ export async function generateImagesForSegment(
   return Promise.all(scenes.map((s, i) => renderOne(s, i)));
 }
 
-/**
- * 使用 AI 提取更精准的场景描述，并直接翻译为信息密度高的英文 diffusion prompt。
- * 失败时回退到启发式 extractSceneDescriptions。
- */
 export interface CharacterVisualHint {
   /** 中文名（用于在段落中匹配） */
   name: string;
@@ -663,6 +730,111 @@ export interface CharacterVisualHint {
   role?: string;
 }
 
+// ─── enPrompt 有效性守卫（提取失败时重试 / 按 description 兜底重写） ─────
+// 背景：提取 LLM 偶发采样退化（enPrompt 缺失 / 近空 / 混入中文）时，旧逻辑会经
+// buildImagePrompt 拼出"近空 prompt"直送生图 API → 生成与段落完全无关的画面
+// （实测案例：玄武门轮 B1 "A wide cinematic scene depicting:."）。守卫设三层防线：
+//   ① 逐条校验：enPrompt 经 CJK 剥离后仍须达到最小体量（防"近空"与"将被剥空"）；
+//   ② 整组重试：0 条有效（含解析失败 / 调用异常）→ 追加强化指令重发一次提取
+//      （采样抖动通常一次即可恢复）；
+//   ③ 兜底重写：重试后仍缺的镜头，按 description 重写为英文 prompt；description
+//      也没有 → 弃用该镜头（不拿退化 enPrompt 当重写素材，避免产出"看着像样但
+//      无文本依据"的幻觉画面）。全部不可用 → 回退启发式 extractSceneDescriptions
+//      （沿用既有 CJK 翻译通道）。
+// 另在 generateImagesForSegment 装配末端设有「守卫终检」：无论场景来自哪条通道
+// （提取 / 重写 / 启发式翻译 / 英文脚手架），CJK 剥离后低于阈值的 prompt 一律
+// 不送生图 API（宁缺毋滥；presetScenes 复现通道除外）。
+// 正常路径零额外调用；失败路径最多多 1~2 次文本调用。
+
+/** 提取 LLM 返回的原始镜头条目（字段不可信，一律按 unknown 处理后校验） */
+interface RawSceneItem {
+  description?: unknown;
+  enPrompt?: unknown;
+  type?: unknown;
+  characters?: unknown;
+}
+
+function isRawSceneItem(it: unknown): it is RawSceneItem {
+  return !!it && typeof it === 'object' && !Array.isArray(it);
+}
+
+/** enPrompt 经 CJK 剥离后视为有效的最小字符数 */
+export const MIN_VALID_ENPROMPT_CHARS = 60;
+/** enPrompt 经 CJK 剥离后视为有效的最小英文单词数 */
+export const MIN_VALID_ENPROMPT_WORDS = 10;
+
+/** 与 enforceNoTextInPrompt 使用同一字符集（会被剥离的字符） */
+const CJK_CHARS_RE = /[　-〿぀-ゟ゠-ヿ㄀-ㄯ㈀-㋿㐀-䶿一-鿿가-힯豈-﫿＀-￯]+/g;
+
+/**
+ * 判定 enPrompt 是否"能活着到达生图 API"：
+ * CJK 字符会被 enforceNoTextInPrompt 剥离，因此按剥离后的剩余量判定——
+ * 中文描述、近空串（"A wide cinematic scene depicting:."）均会被判无效。
+ * 同一判据也被 generateImagesForSegment 的「守卫终检」复用于所有非 preset 场景。
+ */
+export function isValidEnPrompt(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false;
+  const cleaned = raw.replace(CJK_CHARS_RE, ' ').replace(/\s+/g, ' ').trim();
+  if (cleaned.length < MIN_VALID_ENPROMPT_CHARS) return false;
+  const words = cleaned.split(' ').filter(w => /[a-zA-Z]/.test(w));
+  return words.length >= MIN_VALID_ENPROMPT_WORDS;
+}
+
+/** 守卫第 ② 层：整组重试时追加的强化指令 */
+const GUARD_RETRY_SUFFIX = `
+
+【系统校验未通过 · 请完整重新输出】上一次的输出不合格：部分或全部镜头缺少完整、有效的英文 enPrompt（缺失 / 过短 / 混入中文）。请严格按格式完整重新输出 JSON 数组，每个镜头必须包含一条完整的英文 enPrompt（80-140 词：主体 / 动作 / 环境 / 光线 / 镜头景别 / 构图 / 氛围齐全），不得省略、不得截断。`;
+
+/**
+ * 守卫第 ③ 层：把单条中文镜头描述兜底重写为英文 diffusion prompt。
+ * 输出经清洗与 isValidEnPrompt 复核；不合格返回 null（调用方丢弃该镜头，绝不回退近空 prompt）。
+ */
+async function rewritePromptFromDescription(
+  description: string,
+  type: SceneDescription['type'],
+  callAIFn: (prompt: string) => Promise<string>,
+): Promise<string | null> {
+  const typeHint: Record<SceneDescription['type'], string> = {
+    scene: 'wide cinematic scene',
+    character: 'character-focused shot',
+    object: 'close-up detail shot',
+  };
+  const prompt = `你是 diffusion 模型 prompt 工程师。把下面这条中文镜头描述改写为一条完整的英文图片生成 prompt（80-140 词），必须包含：主体与动作、环境、光线、镜头景别（wide shot / medium / close-up）、构图、氛围。不要出现任何中文字符；不要描写人物外貌细节（发型 / 须式 / 服装 / 五官）。只输出英文 prompt 本体，不要引号、不要解释。
+
+镜头类型：${typeHint[type] || 'wide cinematic scene'}
+镜头描述：${description.slice(0, 200)}`;
+
+  try {
+    const raw = await callAIFn(prompt);
+    const cleaned = (raw || '')
+      .replace(CJK_CHARS_RE, ' ')
+      .replace(/["'“”「」『』]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!isValidEnPrompt(cleaned)) {
+      console.warn(
+        `[image-generator][守卫] 兜底重写结果未通过有效性校验（长度 ${cleaned.length}），该镜头将被弃用`,
+      );
+      return null;
+    }
+    return cleaned;
+  } catch (e) {
+    console.warn('[image-generator][守卫] 兜底重写调用失败:', e);
+    return null;
+  }
+}
+
+/**
+ * 使用 AI 提取更精准的场景描述，并直接翻译为信息密度高的英文 diffusion prompt。
+ * 失败时回退到启发式 extractSceneDescriptions。
+ *
+ * 「enPrompt 有效性守卫」（提取 LLM 与生图 API 之间的质检关卡）：
+ *   ① 逐条校验 enPrompt（CJK 剥离后须达到最小体量，见 isValidEnPrompt）；
+ *   ② 0 条有效 → 追加强化指令整组重试一次（采样抖动通常可恢复）；
+ *   ③ 重试后仍缺的镜头按 description 兜底重写；description 也没有 → 弃用该镜头；
+ *   ④ 全部不可用 → 回退启发式提取。
+ * 任何近空 prompt（如 "A wide cinematic scene depicting:."）都无法流进生图 API。
+ */
 export async function extractSceneDescriptionsWithAI(
   segment: string,
   callAIFn: (prompt: string) => Promise<string>,
@@ -687,68 +859,47 @@ export async function extractSceneDescriptionsWithAI(
       .map((img, i) => `[${i + 1}] ${img.characterName ? `角色: ${img.characterName}` : '群像'} → ${img.localPath}`)
       .join('\n');
     referenceBlock = `
-【IP 参考图】（以下图片是该同人 IP 的官方/经典角色设定图，生成 enPrompt 时必须严格遵循这些参考图的视觉风格和角色外观）：
+【IP 参考图】（以下图片是该同人 IP 的官方/经典角色设定图，整幅画面的视觉风格必须严格遵循这些参考图；角色造型与之一致）：
 ${imageList}
-约束：enPrompt 中的角色外观描述必须与参考图一致，不得凭空创造新设计。
+约束：角色外貌以系统统一追加的固定"角色锚点"为准（两者应互相吻合）；不得凭空创造新设计。
 `;
   }
 
-  // 构建角色视觉速查表：中文名 → 英文名 + 外观关键词
-  //
-  // 背景：扩散模型在同一张图里出现多个"外观未锁定"的人物时，
-  // 会出现「特征串味」——路人的服装/发色被迁移到主角身上，或主角的面部特征
-  // 被平均成"路人脸"。故此处必须：
-  //   ① 给已登记角色一段完整、可复制的英文外观串（视觉锚点）
-  //   ② 明确要求路人以"虚化、无面部细节"的方式呈现，且不得继承主角特征
+  // 构建角色名单（只给名字与定位）：外貌由系统统一追加的"角色锚点"块保证一致，
+  // 此处故意不展示 appearance，避免 LLM 把外观改写进 enPrompt 造成跨图漂移
   let characterBlock = '';
   const chars = (ctx?.characters || []).filter(c => c && c.name);
   if (chars.length > 0) {
     const lines = chars.map(c => {
       const parts = [`- ${c.name}`];
       if (c.canonicalName) parts.push(`英文名：${c.canonicalName}`);
-      if (c.appearance) parts.push(`外观（英文，须逐字复用）：${c.appearance}`);
       if (c.role) parts.push(`定位：${c.role}`);
       return parts.join(' | ');
     });
-    characterBlock = `\n【已登记角色 · 视觉锚点】
-以下角色已有固定外观设定，**在 enPrompt 中必须逐条复制其"外观"英文串**，不得改写、简化或与其他人物的特征混合：
-${lines.join('\n')}
-
-【多人物场景 · 防串味规则】（当镜头中出现两个及以上人物时，必须严格遵守）
-A. 已登记角色一律用"视觉锚点"原文，且每个角色单独成句，用逗号或分号隔开，例如：
-   "Zhang Qian, a tall man in his thirties with a long black beard, wearing a tattered Han dynasty official robe and holding a yak-tail banner; "
-B. 未登记的路人 / 士兵 / 百姓 / 群像，必须：
-   - 统一用集合名词描述，如 "a group of soldiers in generic armor" / "blurred crowd of villagers"，不要给路人起名、不要写面部细节；
-   - **明确标注为背景/虚化**：加 "in the background, out of focus, faces not visible"；
-   - **禁止**把"视觉锚点"里的发型、发色、服装、标志性特征用在路人身上。
-C. 镜头里同时有主角与路人时，enPrompt 的书写顺序固定为：
-   [主角 = 视觉锚点原文] → [动作] → [路人 = 集合名词 + out of focus] → [环境/光线/构图]
-D. 若镜头里只有一个已登记角色，**不要**凭空添加其他人物，保持单主体。
-`;
+    characterBlock = `\n已登记角色（镜头中出现时用这些名字指代人物；禁止描写其外貌细节——发型/须式/服装/五官等由系统统一追加的固定"角色锚点"保证跨图一致；禁止用 "a boy / a man / a woman" 泛称）：\n${lines.join('\n')}\n`;
   }
+
+  // 长段落头+尾采样（C4-②）：只截头部会漏掉后半的关键画面（常为高潮/转折）→ 图文不符
+  const segmentForExtraction = sampleSegmentText(segment, 1500);
 
   const prompt = `你是一位电影分镜与 diffusion 模型 prompt 工程师。
 分析下面这段中文故事（"当前段落"），提取 1-3 个最具视觉画面感的镜头，并为每个镜头同时给出：
 - description：中文一句话镜头说明（10-40字，给人看）
-- enPrompt：英文图片生成 prompt（给 diffusion 模型看），90-160 词，包含：**主体（含具体外观）、动作、环境、光线、镜头景别（wide shot / medium / close-up）、构图、氛围**。
+- enPrompt：英文图片生成 prompt（给 diffusion 模型看），80-140 词，包含：**主体（用角色名指代）、动作、环境、光线、镜头景别（wide shot / medium / close-up）、构图、氛围**。
 - type：scene | character | object
-- characters：该镜头中出现的"已登记角色"中文名数组（没有则空数组）
+- characters：该镜头中出现的"已登记角色"的中文名数组（必须来自下方角色列表），没有则为 []
 
 【关键约束】
 1. 镜头必须**只来自"当前段落"**。"近 N 段摘要"和"场景状态"仅用于理解世界观和画面连贯，不得把摘要中的历史事件当镜头。
 2. enPrompt 必须是纯英文，不得出现任何中文字符、假名、朝鲜字；不得原样抄写段落里的中文句子。
-3. 若镜头里出现"已登记角色"，必须**逐字复制**其"外观"英文串（同人/动漫 IP 请用原作经典造型），不得笼统写 "a boy / a man / a woman"，也不得简化或随意改写。
-4. **多人物防串味**（最容易出错，务必遵守）：
-   - 每个已登记角色的外观必须**独立完整**地写出，各自成句；
-   - 未登记的路人/士兵/群像一律用集合名词 + "out of focus, faces not visible"，**严禁**套用已登记角色的发型、发色、服装或标志性特征；
-   - 不要把两个角色的特征拼在一起（例如"张骞的胡须 + 汉武帝的冕服"是错误的）。
-5. 若故事类型是动漫/同人/轻小说，在 enPrompt 里保留角色的英文名（如 "Obito Uchiha"），并附带外观描述。
-6. 若给出了"已知场景状态"，enPrompt 里的环境/光线/时间描述必须与之一致（例如 scene state 说 dusk rainy，就不能写 sunny morning）。
-7. 在 enPrompt 结尾追加固定短语：", no text, no captions, no subtitles, no speech bubbles, no calligraphy, no watermark"。
-8. 严格输出 JSON 数组，不要 markdown、不要额外文字。
+3. 若镜头里出现"已登记角色"，必须用其名字指代（有英文名时用英文名，如 "Obito Uchiha"）——但**绝对禁止在 enPrompt 里描写任何外貌细节**（发型、发色、眼睛、胡须/须式、服装、年龄、标志性特征一律不写），角色外貌由系统统一追加的固定"角色锚点"保证跨图一致（同人/动漫 IP 会用原作经典造型）；也禁止用 "a boy / a man / a woman" 泛称。
+4. 每个镜头必须输出 characters 字段，列出该镜头登场的已登记角色（中文名）；遗漏会导致该镜头缺少角色外观锚点。
+5. 若给出了"已知场景状态"，enPrompt 里的环境/光线/时间描述必须与之一致（例如 scene state 说 dusk rainy，就不能写 sunny morning）。
+6. 在 enPrompt 结尾追加固定短语：", no text, no captions, no subtitles, no speech bubbles, no calligraphy, no watermark"。
+7. 严格输出 JSON 数组，不要 markdown、不要额外文字。
 
 格式：
-[{"description":"...","enPrompt":"...","type":"scene","characters":["角色名"]}]
+[{"description":"...","enPrompt":"...","type":"scene","characters":["角色中文名"]}]
 
 ${genreHint}
 ${descHint}
@@ -757,57 +908,117 @@ ${sceneStateHint}
 ${characterBlock}
 ${referenceBlock}
 【当前段落】（镜头必须从这里取）：
-${segment.slice(0, 1500)}`;
+${segmentForExtraction}`;
 
   try {
-    const text = await callAIFn(prompt);
+    /** 单次提取：调用 + 解析为原始条目列表（非数组或全无条目时返回 null 由守卫处理） */
+    const requestExtraction = async (suffix = ''): Promise<RawSceneItem[] | null> => {
+      const text = await callAIFn(prompt + suffix);
+      // ── 健壮 JSON 解析：兼容推理模型思考文本、markdown 包裹、截断响应等 ──
+      const parsed = extractJsonFromAI<unknown>(text);
+      if (!Array.isArray(parsed)) {
+        console.warn(`[image-generator][守卫] AI 返回内容无法解析为 JSON 数组，前200字: ${String(text).slice(0, 200)}`);
+        return null;
+      }
+      return parsed.filter(isRawSceneItem).slice(0, 3);
+    };
 
-    // ── 健壮 JSON 解析：兼容推理模型思考文本、markdown 包裹、截断响应等 ──
-    const parsed = extractJsonFromAI<Array<{
-      description: string;
-      enPrompt?: string;
-      type?: 'scene' | 'character' | 'object';
-      characters?: string[];
-    }>>(text);
+    const countValid = (list: RawSceneItem[] | null) =>
+      (list || []).filter(it => isValidEnPrompt(it.enPrompt)).length;
 
-    if (!parsed) {
-      console.warn(`[image-generator] AI 返回内容无法解析为 JSON，前200字: ${text.slice(0, 200)}`);
-      throw new Error('无法解析 AI 返回的 JSON');
+    let retried = false; // 整组重试是否触发（供最终日志与验证复核）
+    let rewriteOk = 0; // 兜底重写成功条数
+
+    // ── 第 1 次提取（调用异常视同"0 条有效"，交给守卫②统一重试一次） ──
+    let items: RawSceneItem[] | null = null;
+    try {
+      items = await requestExtraction();
+    } catch (e) {
+      console.warn('[image-generator][守卫] 首次提取调用失败（将由守卫②重试一次）:', e);
     }
 
-    return parsed.slice(0, 3).map(item => {
-      const type = (item.type || 'scene') as SceneDescription['type'];
-      const enPrompt = (item.enPrompt || '').trim();
-      // 若 AI 没输出英文 prompt，退回模板拼接
-      const imgPrompt = enPrompt || buildImagePrompt(item.description || '', type);
+    // ── 守卫②：一条有效 enPrompt 都没有（含解析失败 / 调用异常）→ 追加强化指令重试一次 ──
+    if (countValid(items) === 0) {
+      console.warn('[image-generator][守卫] 首次提取无有效 enPrompt（缺失 / 近空 / 混入中文），强化指令重试一次');
+      retried = true;
+      const retryItems = await requestExtraction(GUARD_RETRY_SUFFIX).catch(e => {
+        console.warn('[image-generator][守卫] 重试调用失败:', e);
+        return null;
+      });
+      if (retryItems && (countValid(retryItems) > 0 || !items || items.length === 0)) {
+        items = retryItems;
+      }
+    }
 
-      // 防串味自检：镜头里登记了多个角色，但 enPrompt 里没带上对应的英文外观串，
-      // 说明 AI 可能把角色写笼统了 —— 打日志便于排查（不阻断生成）
-      const shotChars = Array.isArray(item.characters) ? item.characters.filter(Boolean) : [];
-      if (shotChars.length > 0) {
-        const missing = shotChars.filter(name => {
-          const hint = (ctx?.characters || []).find(c => c.name === name);
-          const token = hint?.canonicalName || name;
-          return !imgPrompt.includes(token);
-        });
-        if (missing.length > 0) {
-          console.warn(
-            `[image-generator] 防串味自检：镜头含角色 [${shotChars.join('、')}]，` +
-            `但 enPrompt 未出现 [${missing.join('、')}] 的视觉锚点，可能外观漂移`,
-          );
+    if (!items || items.length === 0) {
+      throw new Error('提取失败：重试后仍无任何镜头条目');
+    }
+
+    // ── 守卫①③：逐条校验；无效条目按 description 兜底重写，重写失败才丢弃 ──
+    const scenes: SceneDescription[] = [];
+    const dropped: string[] = [];
+
+    for (const item of items) {
+      const rawType = typeof item.type === 'string' ? item.type : 'scene';
+      const type: SceneDescription['type'] =
+        rawType === 'character' || rawType === 'object' ? rawType : 'scene';
+      const description = typeof item.description === 'string' ? item.description.trim() : '';
+
+      const isValid = isValidEnPrompt(item.enPrompt);
+      let finalPrompt = isValid ? (item.enPrompt as string).replace(/\s+/g, ' ').trim() : '';
+
+      if (!finalPrompt) {
+        // 守卫③：仅当 description 存在时兜底重写为英文 prompt；description 也没有 →
+        // 弃用该镜头。不拿"残存 enPrompt"当重写素材——它大概率就是空 / 近空 / 以中文
+        // 为主的退化产物，从无内容素材重写会产出"看着像样但无文本依据"的幻觉画面，
+        // 与近空 prompt 同样有害（宁可弃用，让启发式通道从段落正文重建）。
+        if (description) {
+          const rewritten = await rewritePromptFromDescription(description, type, callAIFn);
+          if (rewritten) {
+            finalPrompt = rewritten;
+            rewriteOk++;
+          }
         }
       }
-      if (shotChars.length >= 2) {
-        console.log(`[image-generator] 多人物镜头（${shotChars.join('、')}）——已启用防串味规则`);
+
+      if (!finalPrompt) {
+        dropped.push(description || '(无描述)');
+        continue;
       }
 
-      return {
-        description: item.description || enPrompt.slice(0, 40),
+      // C3: 该镜头登场的已登记角色名 —— 用于在最终 prompt 中附加冻结的外观锚点；
+      // 缺失时 resolveSceneAnchorLines 会退化为按镜头文本包含匹配
+      const characterNames = Array.isArray(item.characters)
+        ? (item.characters as unknown[])
+            .filter((n): n is string => typeof n === 'string' && n.trim().length > 0)
+            .map(n => n.trim())
+        : undefined;
+
+      scenes.push({
+        description: description || finalPrompt.slice(0, 40),
         type,
-        prompt: imgPrompt,
-        characters: shotChars.length > 0 ? shotChars : undefined,
-      };
-    });
+        prompt: finalPrompt,
+        characterNames,
+      });
+    }
+
+    if (dropped.length > 0) {
+      console.warn(`[image-generator][守卫] 丢弃 ${dropped.length} 个无法重写的无效镜头: ${dropped.join(' / ')}`);
+    }
+
+    if (scenes.length === 0) {
+      throw new Error('提取失败：所有镜头均未通过有效性校验（重试与兜底重写后）');
+    }
+
+    // 守卫活动汇总（正常路径零额外调用；此行为一次性日志，便于真实运行复核）
+    console.log(
+      `[image-generator][守卫] 提取完成：采用 ${scenes.length} 个镜头` +
+        `${retried ? '（触发整组重试）' : ''}` +
+        `${rewriteOk > 0 ? `（兜底重写 ${rewriteOk} 条）` : ''}` +
+        `${dropped.length > 0 ? `（弃用 ${dropped.length} 条）` : ''}`,
+    );
+
+    return scenes;
   } catch (error) {
     console.warn(`[image-generator] AI 场景提取失败，回退到启发式方法: ${error}`);
     return extractSceneDescriptions(segment);

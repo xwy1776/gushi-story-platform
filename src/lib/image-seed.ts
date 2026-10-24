@@ -1,83 +1,82 @@
 /**
- * 生图 seed 派生策略
+ * 生图 seed 派生（Blueprint C2 / C5）
  *
- * ── 要解决的问题 ────────────────────────────────────────────────────
- * 扩散模型的 seed 决定"这次生成的随机起点"。旧实现用
- *   seed = hash(所有角色名排序拼接 + segmentId)
- * 派生，导致两个致命问题：
+ * 职责边界（防止误用）：
+ * - 本模块负责"身份稳定"与"构图多样"的平衡：
+ *   · identity 策略（C5 默认）：同一故事内所有含角色的图片共享同一个"身份 seed"——
+ *     跨段落、跨同框角色组合都保持一致，脸/体态中的随机分量被锁住；构图差异交给场景
+ *     提示词（动作/环境/镜头）。无角色段落（纯风景）保留段落盐（没有脸可锁，优先多样性）。
+ *   · diverse 策略（C2 原行为）：seed = 角色集合 + 段落盐，跨段必不同（构图多样性优先）。
+ * - "脸不漂移"是三层共同结果：seed 层（相同噪声起点，本模块 identity）+ 文字层
+ *   （逐字冻结的外观锚点 C3 + 结构化五官/体态描述 C5）；单靠任何一层都不够。
+ * - 重 roll（variant）会更换 seed——identity 策略下意味着"重新选一次演员长相"，
+ *   属显式操作，路由层有日志提示。
  *
- *   1. **加入路人就换 seed**：段落里多了一个未登记的路人，charKey 变了，
- *      整张图的 seed 随之改变 → 主角的脸跟着变。这正是"人物一多就串味"的根因之一。
- *   2. **每段都换 seed**：segmentId 参与派生，所以相邻段落必然是不同的 seed，
- *      角色面部在段落之间无法保持。
- *
- * ── 新策略：主角锚定 + 场景微扰 ──────────────────────────────────────
- *   seed = hash(主角外观锚点) + hash(场景片段) % SCENE_JITTER
- *
- *   - **主角锚定**：只取第一个已登记角色（主角）的 `appearance` 文本参与派生。
- *     外观不变 → 主角 seed 基数不变 → 跨段落主角面部稳定。
- *     路人（未登记）不参与派生，所以加不加路人都不会影响主角。
- *   - **场景微扰**：用段落内容的开头做一个小幅偏移（模 SCENE_JITTER），
- *     让同一主角在不同场景下构图有别，但偏移量远小于 seed 基数，
- *     不会把主角的脸"洗掉"。
+ * 旧版问题（C2 背景）：seed 仅由角色名哈希派生 → 同一角色组合在任何段落拿到同一个
+ * seed → 不同段落插图构图高度雷同；随后加段落盐（diverse）修构图，却让"脸"也随段改变。
+ * C5 起按"有角色 → 锁身份；无角色 → 保多样"拆分处理。
  */
 
-/** 一个已登记角色的视觉信息（与 CharacterVisualHint 兼容的最小子集） */
-export interface SeedCharacterHint {
-  name: string;
-  canonicalName?: string;
-  appearance?: string;
-  role?: string;
+export type ImageSeedStrategy = 'identity' | 'diverse';
+
+export interface ImageSeedOptions {
+  /** 该段落的角色集合（diverse 下为身份基数；identity 下有角色即视为"锁身份"信号） */
+  characters: { name: string; canonicalName?: string | null }[];
+  /** 故事 ID（身份的归属域） */
+  storyId: string;
+  /** 段落 ID（diverse 的构图盐；无角色时两种策略都保留） */
+  segmentId: string;
+  /**
+   * 重 roll 变体 nonce：仅在"对已有图片的段落再次生成"时传入。
+   * 首生成不传 → 可复现；重 roll 传新值 → 换一次 seed。
+   */
+  variant?: string;
+  /** 派生策略（默认 identity，见文件头） */
+  strategy?: ImageSeedStrategy;
 }
 
-/** 场景微扰幅度：远小于 seed 基数，只影响构图/细节，不影响人物身份 */
-export const SCENE_JITTER = 4096;
-
-/** FNV-1a 32 位哈希 */
-function fnv1a(str: string): number {
+/** FNV-1a 32 位哈希（保持与原实现相同的散列算法） */
+function fnv1aHash(str: string): number {
   let h = 2166136261;
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
-  return h >>> 0;
+  return h;
 }
 
 /**
- * 取"主角"作为视觉锚定对象。
+ * 派生该次生图的 seed（0 ~ 2^31-2 的正整数）。
  *
- * 优先级：role === 'protagonist' 的第一个 → 否则第一个角色。
- * 只看主角是因为：一张图里最需要保持一致的通常是主角；
- * 若把全部角色都纳入，角色集合一变 seed 就变，等于退回旧实现的老问题。
- */
-export function pickAnchorCharacter(
-  characters: SeedCharacterHint[],
-): SeedCharacterHint | undefined {
-  if (!characters || characters.length === 0) return undefined;
-  return characters.find(c => c.role === 'protagonist') ?? characters[0];
-}
-
-/**
- * 派生图片生成 seed。
+ * key 构造：
+ * - identity + 有角色：`id:{storyId}`                  （全故事共享——锁脸/体态）
+ * - diverse  + 有角色：`{排序后的(规范名||中文名)}|{段}`（角色集合 + 段落盐）
+ * - 无角色（两策略一致）：`{storyId}:scene|{段}`        （段落盐保留，风景图跨段多样）
+ * - 可选 variant 追加 `|v<variant>`                     （重 roll 换一次）
  *
- * @param characters 当前段落涉及的已登记角色（未登记路人不在其中）
- * @param sceneContent 用于场景微扰的文本（通常是段落内容）
- * @returns seed；无角色时返回 undefined（交给模型自由发挥）
+ * 注意：若生图提供商不支持 seed（如 DALL-E，请求中会删除 seed 字段），本函数返回值
+ * 不影响出图，此时一致性完全依赖文字层（C3 锚点 + C5 结构化五官/体态描述）。
  */
-export function deriveImageSeed(
-  characters: SeedCharacterHint[],
-  sceneContent: string,
-): number | undefined {
-  const anchor = pickAnchorCharacter(characters);
-  if (!anchor) return undefined;
+export function deriveImageSeed(opts: ImageSeedOptions): number {
+  const strategy: ImageSeedStrategy = opts.strategy ?? 'identity';
 
-  // 主角视觉锚点：外观 > 英文名 > 中文名，保证同一角色始终得到同一个基数
-  const anchorKey = anchor.appearance?.trim()
-    || anchor.canonicalName?.trim()
-    || anchor.name;
+  const charKeys = (opts.characters || [])
+    .filter(c => c && typeof c.name === 'string' && c.name.trim().length > 0)
+    .map(c => (typeof c.canonicalName === 'string' && c.canonicalName.trim()) || c.name.trim())
+    .sort();
+  const hasCharacters = charKeys.length > 0;
 
-  const base = fnv1a(`gushi-anchor::${anchorKey}`);
-  const jitter = fnv1a(`gushi-scene::${(sceneContent || '').slice(0, 60)}`) % SCENE_JITTER;
+  let key: string;
+  if (strategy === 'identity' && hasCharacters) {
+    key = opts.storyId && opts.storyId.length > 0 ? `id:${opts.storyId}` : `id:chars:${charKeys.join('|')}`;
+  } else if (hasCharacters) {
+    key = `${charKeys.join('|')}|${opts.segmentId}`;
+  } else {
+    key = `${opts.storyId}:scene|${opts.segmentId}`;
+  }
+  if (opts.variant) {
+    key += `|v${opts.variant}`;
+  }
 
-  return (base % (2147483647 - SCENE_JITTER)) + jitter;
+  return Math.abs(fnv1aHash(key)) % 2147483647;
 }

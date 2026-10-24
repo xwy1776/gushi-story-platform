@@ -70,6 +70,11 @@ npm run test:unit           # 只跑 vitest 原生用例
 npm run test:scripts        # 只跑独立 tsx 脚本
 npm run migrate:json        # JSON → PostgreSQL 迁移
 npm run migrate:validate    # 验证迁移
+npm run migrate:appearance  # 角色 traits 前缀 → 结构化 appearance/canonicalName 迁移（支持 --dry-run）
+npm run experiment:consistency   # 图文一致性实验：有外观约束 vs 无约束（--dry-run 先零成本预览）
+npm run experiment:before-after  # 生图 Prompt 优化前后对比：旧管线复现 vs C3 锚点（--dry-run 先预览）
+npm run experiment:paired        # 配对比较批量实验：N 故事 × 3 段 × 前后 2 组（默认 4 个 preset；--dry-run 先预览；产出一父目录 + manifest.json）
+npm run analyze:paired -- --runs <实验目录> [--emit-template]  # 配对统计：生成评分表模板 / 由评分与文本指标出 stats.md（Wilcoxon 精确符号秩 + McNemar + bootstrap CI）
 ```
 
 ## 测试
@@ -108,6 +113,13 @@ npm test -- state-tracker   # 只跑文件名匹配关键字的独立脚本
 - AI 续写支持流式输出（`stream-continue` 端点）
 - 续写时自动通过维基百科检索历史实体注入事实锚点，防止幻觉
 - 时间轴引擎会校验叙事时间单调性，自动检测时间倒流
+- 角色外观使用独立结构化字段 `Character.appearance`（及 `canonicalName`）；`traits` 只存性格特征，禁止再以 `appearance:` 前缀形式拼装（旧数据用 `npm run migrate:appearance` 迁移，读写统一走 `src/lib/character-fields.ts`）
+- 生图 prompt 由固定模板拼装（`src/lib/image-prompt-template.ts`）：场景描述 + 冻结"角色外观锚点"（逐字来自 `Character.appearance`）+ 风格模板；场景提取 LLM 禁止描写外貌、只输出每镜头登场角色名单，保证同一角色跨段落/跨图外观稳定（C3）
+- 生图 seed 由 `src/lib/image-seed.ts` 统一派生（勿再手写哈希）：默认 identity 策略——同一故事共享身份 seed 锁脸/体态、同段多图 stride=0；diverse（角色集合+段落盐）保留可切换（请求 `seedStrategy` / 环境变量 `IMAGE_SEED_STRATEGY`）；已有图片的段落重生成自动加变体 nonce（C2/C5）
+- 角色外观为固定 5 段结构（年龄性别→五官与须式→发型→身高体型体态→服装配饰，上限 480 字符，C5）；**须式必须明确写出（具体须型或 clean-shaven；女性角色豁免）**，生成（character-engine 两处）/ 存量升级（enrich）/ 完成度判定三处同口径走 `src/lib/appearance-structure.ts`；新增走 character-engine 生成（自动与已登记角色强制区分，C5-②），存量升级/撞脸体检用 `npm run enrich:appearance`；外观字段/结构升级（补维度、改段式）时必须连带同步「用户手填入口」链路——创建页「外貌描述」提示文案（`src/app/create/page.tsx`）、创建 API 截断上限（`src/app/api/stories/route.ts`，现 480）、角色面板展示（曾因漏掉此链路返工，2026-10-04 补记）；多角色同框锚点自动附加"互不串脸"约束行
+- 生图与续写的同步约定（C1/C4）：场景状态带 `lastSegmentId` 新鲜度标记、生图端读前经 `waitForSceneStateFresh` 追平，且续写后处理中场景状态更新必须排在角色发现之前；角色发现完成后必须调用 `characterManager.markCharacterDiscoveryDone`，生图端自发现前先经 `waitForCharacterDiscovery` 等待追平（防双端并发注册、防"刚续写就生图"图文不符）
+- 图文对齐约定（C4-②）：场景状态**仅对分支末段注入**（历史段落生图跳过）；上下文窗口必须按目标段对齐（`locateSegmentContext`，勿再用 `slice(-6,-1)` 取链路末端）；送 LLM 的段落文本一律经 `sampleSegmentText` 头+尾采样（长段落只截头会丢段尾关键画面）
+- 生图提取有效性守卫（提取 LLM → 生图 API 之间的质检关卡，2026-10-02）：`extractSceneDescriptionsWithAI` 对提取结果逐条校验（`isValidEnPrompt`：enPrompt 经 CJK 剥离后 ≥60 字符且 ≥10 字母词）——0 条有效 → 强化指令整组重试一次；仍缺 → 按 `description` 兜底重写（**description 也没有 → 弃用该镜头**，不得拿残存 enPrompt 回炉重写）；全坏 → 启发式回退；`generateImagesForSegment` 装配末端有「守卫终检」（非 preset 通道低于阈值的场景 prompt 一律不送生图 API，宁缺毋滥）；启发式翻译通道逐条校验 + 英文兜底脚手架。改动此链路时跑 `tests/image-generator-guard.test.ts`；正常路径必须保持零额外 AI 调用
 - 环境变量：`AI_API_KEY`, `AI_BASE_URL`, `DATABASE_URL` 等（参考 `.env.example`）
 
 ## 注意事项

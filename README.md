@@ -97,6 +97,72 @@ npm run dev
 
 打开浏览器访问 [http://localhost:3000](http://localhost:3000)
 
+## 论文实验复现
+
+论文 v1.1 的主结果由以下脚本和落盘数据生成。所有命令均从仓库根目录执行。
+
+### 1. 环境与检查
+
+```bash
+# PostgreSQL 映射到宿主机 5433（docker-compose.yml）
+docker compose up -d postgres
+npx prisma db push
+
+# 类型检查与全量测试
+npx tsc --noEmit
+npm test
+```
+
+`.env` 至少需要配置 `DATABASE_URL`、`AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL`。
+当前实验使用 `deepseek-chat`；没有 embedding 配置时，RAG 档会明确退化为中文二元组 BM25。
+
+### 2. 实验 A：记忆注入消融
+
+```bash
+npx tsx tests/ab_ablation.ts --stories=30 --segments=5 --rounds=3
+npx tsx tests/ab_ablation.ts --report-only
+```
+
+主报告：`Docs/ablation/s30_rounds_report.md`；稳健性分析：`Docs/ablation/s30_robustness.md`。
+
+### 3. 实验 B：两档主分析
+
+```bash
+npx tsx tests/ab_branch_isolation.ts \
+  --stories=20 --segments=5 --rounds=3 \
+  --arms=isolated,shared \
+  --out=branch20_rounds_report.md
+```
+
+主报告：`Docs/ablation/branch20_rounds_report.md`。
+
+### 4. 实验 B：三档 RAG 外部对照
+
+```bash
+npx tsx tests/ab_branch_isolation.ts \
+  --stories=20 --segments=5 --rounds=3 \
+  --arms=isolated,shared,rag \
+  --tag=rag20 \
+  --out=branch20_rag_report.md
+```
+
+主报告：`Docs/ablation/branch20_rag_report.md`。当前结果为 BM25 top-3，
+不能写成 embedding RAG；两档主结果 `12% / 67% / 55pp` 与三档重跑
+`5% / 12% / 61%` 来自不同运行，不能混合汇报。
+
+### 5. 人工评估与论文图
+
+```bash
+npx tsx tests/human_eval_prepare.ts
+npx tsx tests/human_eval_agreement.ts
+
+python scripts/make_paper_figures.py
+node scripts/merge-paper-v11.js
+```
+
+论文 v1.1 合并稿：`Docs/ablation/古事论文_v1.1_20261031.md`。
+图文件位于 `Docs/ablation/figures/`。
+
 ## 项目结构
 
 ```

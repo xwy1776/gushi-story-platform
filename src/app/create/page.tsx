@@ -118,6 +118,8 @@ interface InitialCharacter {
   name: string;
   role: string;
   traits: string;
+  /** B2: 独立外貌描述（可选），不再混入性格特征 */
+  appearance: string;
 }
 
 export default function CreateStoryPage() {
@@ -136,7 +138,7 @@ export default function CreateStoryPage() {
   // C6.9: Era and character fields
   const [selectedEra, setSelectedEra] = useState('');
   const [initialCharacters, setInitialCharacters] = useState<InitialCharacter[]>([
-    { name: '', role: 'protagonist', traits: '' },
+    { name: '', role: 'protagonist', traits: '', appearance: '' },
   ]);
   const [showEraPicker, setShowEraPicker] = useState(false);
 
@@ -204,6 +206,7 @@ export default function CreateStoryPage() {
             name: c.name,
             role: c.role,
             traits: c.traits.split(/[,，、]/).filter(Boolean),
+            appearance: c.appearance.trim() || undefined,
           })),
         })
       });
@@ -218,7 +221,7 @@ export default function CreateStoryPage() {
   };
 
   const addCharacter = () => {
-    setInitialCharacters([...initialCharacters, { name: '', role: 'supporting', traits: '' }]);
+    setInitialCharacters([...initialCharacters, { name: '', role: 'supporting', traits: '', appearance: '' }]);
   };
 
   const removeCharacter = (idx: number) => {
@@ -496,6 +499,13 @@ export default function CreateStoryPage() {
                               className="flex-[2] px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--paper)] text-sm text-[var(--ink)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-[var(--gold)]"
                             />
                           </div>
+                          <input
+                            type="text"
+                            value={char.appearance}
+                            onChange={e => updateCharacter(idx, 'appearance', e.target.value)}
+                            placeholder="外貌描述（可选，如发型/服饰/须式/标志特征，用于插图形象一致）"
+                            className="w-full px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--paper)] text-sm text-[var(--ink)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-[var(--gold)]"
+                          />
                         </div>
                         {initialCharacters.length > 1 && (
                           <button

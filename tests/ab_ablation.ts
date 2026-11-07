@@ -47,6 +47,7 @@ import { knowledgeGraph, type NodeType } from '../src/lib/knowledge-graph';
 import { narrativeStateTracker } from '../src/lib/narrative-state-tracker';
 import { getOrderedChain } from '../src/lib/chain-helpers';
 import { callAIText } from '../src/lib/ai-client';
+import { BATCH2_STORY_DEFS, type StoryDef } from './story-defs';
 
 // ============================================================================
 // 消融档位定义
@@ -521,17 +522,14 @@ export function pairedTTest(baseline: number[], treatment: number[]): {
 // 测试故事定义
 // ============================================================================
 
-type StoryDef = {
-  title: string;
-  description: string;
-  genre: string;
-  opener: string;
-  characters: Array<{ name: string; era: string; role: string; traits: string[] }>;
-  graphEdges: Array<{ from: string; to: string; type: 'ally_of' | 'conflicts_with' | 'involves' | 'belongs_to' | 'located_at' }>;
-  states: Array<Record<string, any>>;
-};
+// StoryDef 类型与第二批故事（15 → 30 扩样）见 ./story-defs.ts。
+// 故事数据与类型单列一个模块，是因为它们要被多个实验脚本共用
+// （本文件、ab_branch_isolation.ts，以及待加的 RAG 基线），
+// 而每个脚本都是上千行的跑批入口 —— 反向 import 会把别人的跑批器整个拖进来。
 
-const ALL_STORY_DEFS: StoryDef[] = [
+// 导出是为了让校验脚本 / RAG 基线等复用同一份故事集，
+// 避免各脚本各自维护一份、跑到最后对不上号。
+export const ALL_STORY_DEFS: StoryDef[] = [
   {
     title: '桃园结义',
     description: '东汉末年，刘备、关羽、张飞在桃园结为兄弟，共谋兴复汉室。董卓祸乱朝纲，洛阳危在旦夕。',
@@ -558,6 +556,7 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_luoyang', type: 'location', name: '洛阳', properties: { status: '被董卓控制', controller: '董卓' } },
       { id: 's_rel_lg', type: 'relationship', name: '刘备-关羽', properties: { between: '刘备-关羽', type: '兄弟', status: '正常', strength: '100' } },
       { id: 's_rel_lz', type: 'relationship', name: '刘备-张飞', properties: { between: '刘备-张飞', type: '兄弟', status: '正常', strength: '100' } },
+      { id: 's_evt_taoyuan', type: 'event', name: '桃园结义', properties: { status: '已结盟', participants: '刘备-关羽-张飞' } },
     ],
   },
   {
@@ -583,6 +582,7 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_changan', type: 'location', name: '长安', properties: { status: '汉朝都城', controller: '汉武帝' } },
       { id: 's_rel_zhq_hanwu', type: 'relationship', name: '张骞-汉武帝', properties: { between: '张骞-汉武帝', type: '君臣', status: '正常', strength: '90' } },
       { id: 's_rel_zhq_shanyu', type: 'relationship', name: '张骞-匈奴单于', properties: { between: '张骞-匈奴单于', type: '敌对', status: '对峙' } },
+      { id: 's_evt_chushi', type: 'event', name: '出使西域', properties: { status: '进行中', participants: '张骞' } },
     ],
   },
   {
@@ -608,6 +608,7 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_xianyang', type: 'location', name: '咸阳', properties: { status: '秦国都城', controller: '秦王嬴政' } },
       { id: 's_rel_jk_taizi', type: 'relationship', name: '荆轲-燕太子丹', properties: { between: '荆轲-燕太子丹', type: '君臣', status: '正常', strength: '85' } },
       { id: 's_rel_jk_qw', type: 'relationship', name: '荆轲-秦王嬴政', properties: { between: '荆轲-秦王嬴政', type: '敌对', status: '对峙' } },
+      { id: 's_evt_ciqin', type: 'event', name: '刺秦', properties: { status: '进行中', participants: '荆轲-秦王' } },
     ],
   },
   {
@@ -636,6 +637,7 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_chibi', type: 'location', name: '赤壁', properties: { status: '孙刘联军驻地', controller: '周瑜' } },
       { id: 's_rel_zhou_zgl', type: 'relationship', name: '周瑜-诸葛亮', properties: { between: '周瑜-诸葛亮', type: '同盟', status: '正常', strength: '70' } },
       { id: 's_rel_zhou_cao', type: 'relationship', name: '周瑜-曹操', properties: { between: '周瑜-曹操', type: '敌对', status: '对峙' } },
+      { id: 's_evt_huogong', type: 'event', name: '火攻', properties: { status: '筹划中', participants: '黄盖-曹操' } },
     ],
   },
   {
@@ -661,6 +663,8 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_tubo', type: 'character', name: '吐蕃赞普', properties: { isAlive: 'true', location: '泾阳', status: '赞普', mood: '强横', faction: '吐蕃', goal: '攻取长安' } },
       { id: 's_rel_gzy_huihe', type: 'relationship', name: '郭子仪-回纥可汗', properties: { between: '郭子仪-回纥可汗', type: '旧交', status: '正常', strength: '75' } },
       { id: 's_rel_gzy_tubo', type: 'relationship', name: '郭子仪-吐蕃赞普', properties: { between: '郭子仪-吐蕃赞普', type: '敌对', status: '对峙' } },
+      { id: 's_evt_danqi', type: 'event', name: '单骑退敌', properties: { status: '进行中', participants: '郭子仪' } },
+      { id: 's_loc_changan', type: 'location', name: '长安', properties: { status: '危困', controller: '唐廷' } },
     ],
   },
 
@@ -699,6 +703,8 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_qzw', type: 'character', name: '秦昭王', properties: { isAlive: 'true', location: '咸阳', status: '秦王', mood: '倨傲', faction: '秦国', goal: '骗取和氏璧' } },
       { id: 's_zxw', type: 'character', name: '赵惠文王', properties: { isAlive: 'true', location: '邯郸', status: '赵王', mood: '忧惧', faction: '赵国', goal: '保全和氏璧' } },
       { id: 's_rel_lxr_qzw', type: 'relationship', name: '蔺相如-秦昭王', properties: { between: '蔺相如-秦昭王', type: '敌对', status: '周旋' } },
+      { id: 's_evt_wanbi', type: 'event', name: '完璧归赵', properties: { status: '进行中', participants: '蔺相如-秦昭王' } },
+      { id: 's_loc_xianyang', type: 'location', name: '咸阳', properties: { status: '秦国都城', controller: '秦昭王' } },
     ],
   },
   {
@@ -726,6 +732,8 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_fz', type: 'character', name: '范增', properties: { isAlive: 'true', location: '鸿门', status: '亚父', mood: '决绝', faction: '楚军', goal: '除掉刘邦' } },
       { id: 's_fk', type: 'character', name: '樊哙', properties: { isAlive: 'true', location: '霸上', status: '参乘', mood: '激愤', faction: '汉军', goal: '护卫刘邦' } },
       { id: 's_rel_lb_xy', type: 'relationship', name: '刘邦-项羽', properties: { between: '刘邦-项羽', type: '敌对', status: '剑拔弩张' } },
+      { id: 's_evt_hongmen', type: 'event', name: '鸿门宴', properties: { status: '进行中', participants: '刘邦-项羽' } },
+      { id: 's_loc_hongmen_place', type: 'location', name: '鸿门', properties: { status: '项羽驻军地', controller: '项羽' } },
     ],
   },
   {
@@ -753,6 +761,8 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_fl', type: 'character', name: '范蠡', properties: { isAlive: 'true', location: '会稽', status: '上将军', mood: '沉稳', faction: '越国', goal: '辅佐勾践复国' } },
       { id: 's_wz', type: 'character', name: '文种', properties: { isAlive: 'true', location: '会稽', status: '大夫', mood: '坚定', faction: '越国', goal: '整顿国政' } },
       { id: 's_rel_gj_fc', type: 'relationship', name: '勾践-夫差', properties: { between: '勾践-夫差', type: '敌对', status: '臣服' } },
+      { id: 's_evt_woxin', type: 'event', name: '卧薪尝胆', properties: { status: '进行中', participants: '勾践' } },
+      { id: 's_loc_kuaiji', type: 'location', name: '会稽', properties: { status: '越国都城', controller: '勾践' } },
     ],
   },
   {
@@ -779,6 +789,7 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_zhangfei', type: 'character', name: '张飞', properties: { isAlive: 'true', location: '新野', status: '车骑将军', mood: '焦躁', faction: '刘备军', goal: '随兄长征战' } },
       { id: 's_guanyu', type: 'character', name: '关羽', properties: { isAlive: 'true', location: '新野', status: '偏将军', mood: '沉稳', faction: '刘备军', goal: '辅佐刘备' } },
       { id: 's_rel_lb_zgl', type: 'relationship', name: '刘备-诸葛亮', properties: { between: '刘备-诸葛亮', type: '君臣未定', status: '未遇' } },
+      { id: 's_loc_longzhong', type: 'location', name: '隆中', properties: { status: '诸葛亮躬耕处', controller: '刘表' } },
     ],
   },
   {
@@ -802,6 +813,7 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_lxr2', type: 'character', name: '蔺相如', properties: { isAlive: 'true', location: '邯郸', status: '上卿', mood: '隐忍', faction: '赵国', goal: '避免将相失和' } },
       { id: 's_lp', type: 'character', name: '廉颇', properties: { isAlive: 'true', location: '邯郸', status: '大将军', mood: '愤懑', faction: '赵国', goal: '羞辱蔺相如' } },
       { id: 's_rel_lxr_lp', type: 'relationship', name: '蔺相如-廉颇', properties: { between: '蔺相如-廉颇', type: '同朝', status: '失和' } },
+      { id: 's_evt_fujing', type: 'event', name: '负荆请罪', properties: { status: '进行中', participants: '廉颇-蔺相如' } },
     ],
   },
   {
@@ -826,6 +838,7 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_songyi', type: 'character', name: '宋义', properties: { isAlive: 'false', location: '安阳', status: '已诛', mood: '—', faction: '楚军', goal: '—' } },
       { id: 's_zhanghan', type: 'character', name: '章邯', properties: { isAlive: 'true', location: '巨鹿', status: '秦将', mood: '自信', faction: '秦军', goal: '灭赵' } },
       { id: 's_julu', type: 'location', name: '巨鹿', properties: { status: '被秦军围困', controller: '章邯' } },
+      { id: 's_evt_pofu', type: 'event', name: '破釜沉舟', properties: { status: '进行中', participants: '项羽' } },
     ],
   },
   {
@@ -850,6 +863,7 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_chanyu', type: 'character', name: '匈奴单于', properties: { isAlive: 'true', location: '匈奴王庭', status: '单于', mood: '恼怒', faction: '匈奴', goal: '逼降苏武' } },
       { id: 's_weilv', type: 'character', name: '卫律', properties: { isAlive: 'true', location: '匈奴王庭', status: '降将', mood: '阴狠', faction: '匈奴', goal: '劝降苏武' } },
       { id: 's_beihai', type: 'location', name: '北海', properties: { status: '荒无人烟', controller: '无' } },
+      { id: 's_evt_suwu', type: 'event', name: '苏武牧羊', properties: { status: '进行中', participants: '苏武' } },
     ],
   },
   {
@@ -875,6 +889,7 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_qh', type: 'character', name: '秦桧', properties: { isAlive: 'true', location: '临安', status: '宰相', mood: '阴狠', faction: '南宋', goal: '促成和议' } },
       { id: 's_zg', type: 'character', name: '赵构', properties: { isAlive: 'true', location: '临安', status: '宋高宗', mood: '疑惧', faction: '南宋', goal: '偏安江南' } },
       { id: 's_jwz', type: 'character', name: '金兀术', properties: { isAlive: 'true', location: '开封', status: '金军统帅', mood: '惊惧', faction: '金国', goal: '稳固河南' } },
+      { id: 's_evt_banshi', type: 'event', name: '班师', properties: { status: '进行中', participants: '岳飞' } },
     ],
   },
   {
@@ -898,6 +913,8 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_sy', type: 'character', name: '商鞅', properties: { isAlive: 'true', location: '栎阳', status: '左庶长', mood: '果决', faction: '秦国', goal: '推行新法' } },
       { id: 's_qxg', type: 'character', name: '秦孝公', properties: { isAlive: 'true', location: '栎阳', status: '秦公', mood: '期待', faction: '秦国', goal: '富国强兵' } },
       { id: 's_gl', type: 'character', name: '甘龙', properties: { isAlive: 'true', location: '栎阳', status: '大夫', mood: '不满', faction: '秦国旧族', goal: '阻挠变法' } },
+      { id: 's_evt_limu', type: 'event', name: '立木取信', properties: { status: '进行中', participants: '商鞅' } },
+      { id: 's_loc_liyang', type: 'location', name: '栎阳', properties: { status: '秦国都城', controller: '秦孝公' } },
     ],
   },
   {
@@ -922,8 +939,14 @@ const ALL_STORY_DEFS: StoryDef[] = [
       { id: 's_pj', type: 'character', name: '苻坚', properties: { isAlive: 'true', location: '淮北', status: '前秦天王', mood: '溃败', faction: '前秦', goal: '收拢败兵' } },
       { id: 's_xa', type: 'character', name: '谢安', properties: { isAlive: 'true', location: '建康', status: '宰相', mood: '从容', faction: '东晋', goal: '稳定朝局' } },
       { id: 's_feishui', type: 'location', name: '淝水', properties: { status: '战场', controller: '东晋' } },
+      { id: 's_evt_feishui', type: 'event', name: '淝水之战', properties: { status: '进行中', participants: '谢玄-苻坚' } },
     ],
   },
+
+  // 第二批（扩样 15 → 30）。追加在末尾是有意的：下面的选取逻辑按下标取前 `stories` 个
+  // （`for (let i = 0; i < Math.min(stories, ALL_STORY_DEFS.length); i++)`），
+  // 所以 `--stories=15` 仍取到原来那批，与旧结果可直接比对；`--stories=30` 才纳入新增的 15 个。
+  ...BATCH2_STORY_DEFS,
 ];
 
 // ============================================================================

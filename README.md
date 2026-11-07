@@ -97,6 +97,106 @@ npm run dev
 
 打开浏览器访问 [http://localhost:3000](http://localhost:3000)
 
+## 论文实验复现
+
+论文 v1.2 的主结果由以下脚本和落盘数据生成。所有命令均从仓库根目录执行。
+
+### 1. 环境与检查
+
+```bash
+# PostgreSQL 映射到宿主机 5433（docker-compose.yml）
+docker compose up -d postgres
+npx prisma db push
+
+# 类型检查与全量测试
+npx tsc --noEmit
+npm test
+```
+
+`.env` 至少需要配置 `DATABASE_URL`、`AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL`。
+当前实验使用 `deepseek-chat`；没有 embedding 配置时，RAG 档会明确退化为中文二元组 BM25。
+
+### 2. 实验 A：记忆注入消融
+
+```bash
+npx tsx tests/ab_ablation.ts --stories=30 --segments=5 --rounds=3
+npx tsx tests/ab_ablation.ts --report-only
+```
+
+主报告：`Docs/ablation/s30_rounds_report.md`；稳健性分析：`Docs/ablation/s30_robustness.md`。
+
+### 3. 实验 B：两档主分析
+
+```bash
+npx tsx tests/ab_branch_isolation.ts \
+  --stories=20 --segments=5 --rounds=3 \
+  --arms=isolated,shared \
+  --out=branch20_rounds_report.md
+```
+
+主报告：`Docs/ablation/branch20_rounds_report.md`。
+
+### 4. 实验 B：三档 RAG 外部对照
+
+```bash
+npx tsx tests/ab_branch_isolation.ts \
+  --stories=20 --segments=5 --rounds=3 \
+  --arms=isolated,shared,rag \
+  --tag=rag20 \
+  --out=branch20_rag_report.md
+```
+
+主报告：`Docs/ablation/branch20_rag_report.md`。当前结果为 BM25 top-3，
+不能写成 embedding RAG；两档主结果 `12% / 67% / 55pp` 与三档重跑
+`5% / 12% / 61%` 来自不同运行，不能混合汇报。
+
+### 5. 第二模型交叉验证（Qwen）
+
+先在 `.env` 中配置独立的 `SECOND_MODEL_*`，不要覆盖主实验的 `AI_*`：
+
+```env
+SECOND_MODEL_API_KEY=your_qwen_key
+SECOND_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+SECOND_MODEL_NAME=qwen3.7-plus
+SECOND_MODEL_ENABLE_THINKING=false
+```
+
+```bash
+# 先跑小样本 smoke
+npx tsx tests/ab_branch_isolation.ts \
+  --stories=2 --segments=2 --rounds=1 \
+  --arms=isolated,shared,rag \
+  --generator-model=secondary \
+  --tag=qwen37plus_smoke \
+  --out=branch_qwen_smoke_report.md
+
+# 探索性交叉验证：10 个分叉，一轮
+npx tsx tests/ab_branch_isolation.ts \
+  --stories=10 --segments=5 --rounds=1 \
+  --arms=isolated,shared,rag \
+  --generator-model=secondary \
+  --tag=qwen37plus_n10 \
+  --out=branch_qwen37plus_n10_report.md
+```
+
+该模式只替换续写生成模型；记忆抽取和 Judge 仍使用主模型，避免一次改变多个变量。
+
+### 6. 人工评估与论文图
+
+```bash
+npx tsx tests/human_eval_prepare.ts
+npx tsx tests/human_eval_agreement.ts
+
+python scripts/make_paper_figures.py
+pandoc Docs/ablation/论文_v1.2_期刊排版稿_20261107.md \
+  -f gfm -o 论文_v1.2_期刊排版稿_20261107.docx \
+  --resource-path=Docs/ablation
+```
+
+论文 v1.2 期刊排版稿：`Docs/ablation/论文_v1.2_期刊排版稿_20261107.md`。
+内部合并稿 v1.1 仍保留在 `Docs/ablation/古事论文_v1.1_20261031.md`。
+图文件位于 `Docs/ablation/figures/`。
+
 ## 项目结构
 
 ```

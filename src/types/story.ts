@@ -25,6 +25,10 @@ export type Character = {
   relationships: CharacterRelationship[];
   stateHistory: CharacterStateEntry[];
   coreMotivation: string;
+  /** B2: 独立的外貌描述字段（供配图 / 描述一致性使用） */
+  appearance?: string;
+  /** B2: 规范英文名 / 罗马音（同人 IP 场景） */
+  canonicalName?: string;
   createdAt?: string;
   updatedAt?: string;
 };

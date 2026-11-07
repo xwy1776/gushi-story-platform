@@ -10,16 +10,17 @@ import {
 import prisma from '@/lib/prisma';
 import { callAIText } from '@/lib/ai-client';
 import { characterManager } from '@/lib/character-engine';
+import { resolveCharacterFields } from '@/lib/character-fields';
+import { deriveImageSeed, type ImageSeedStrategy } from '@/lib/image-seed';
 import { directorManager } from '@/lib/director-manager';
 import { contextSummarizer } from '@/lib/context-summarizer';
-import { getOrderedChain } from '@/lib/chain-helpers';
+import { getOrderedChain, locateSegmentContext } from '@/lib/chain-helpers';
 import { getCachedReferenceImages, searchReferenceImages, type ReferenceImageHint } from '@/lib/reference-image-search';
-import { deriveImageSeed } from '@/lib/image-seed';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { segmentId, segmentContent, style = 'auto', storyContent, maxImages = 3 } = body;
+    const { segmentId, segmentContent, style = 'auto', storyContent, maxImages = 3, reroll = false, seedStrategy: seedStrategyRaw } = body;
 
     if (!segmentId || !segmentContent) {
       return NextResponse.json(
@@ -40,12 +41,14 @@ export async function POST(request: NextRequest) {
     let storyTitleForSeed: string | undefined;
     let storyEraForSeed: string | undefined;
     let branchIdForChain = 'main';
+    let existingImageCount = 0;
     try {
       const seg = await prisma.storySegment.findUnique({
         where: { id: segmentId },
         select: {
           storyId: true,
           branchId: true,
+          imageUrls: true,
           story: { select: { genre: true, description: true, era: true, title: true } },
         },
       });
@@ -56,6 +59,7 @@ export async function POST(request: NextRequest) {
         storyTitleForSeed = seg.story.title;
         storyEraForSeed = seg.story.era ?? undefined;
         branchIdForChain = seg.branchId || 'main';
+        existingImageCount = Array.isArray(seg.imageUrls) ? seg.imageUrls.length : 0;
       }
     } catch (e) {
       console.warn('[images/generate] 拉取 story 信息失败:', e);
@@ -89,11 +93,7 @@ export async function POST(request: NextRequest) {
           } else {
             // 异步搜索，不阻塞当前图片生成
             const characterNames = (await characterManager.list(storyIdForChars))
-              .map(c => {
-                const traits = Array.isArray(c.traits) ? c.traits as string[] : [];
-                const canonical = traits.find((t: string) => t.startsWith('canonical:'));
-                return canonical ? canonical.slice('canonical:'.length) : c.name;
-              })
+              .map(c => resolveCharacterFields(c).canonicalName || c.name)
               .slice(0, 8);
 
             searchReferenceImages(
@@ -109,10 +109,20 @@ export async function POST(request: NextRequest) {
     }
 
     // 发现并自动注册段落中出现的所有角色（含新角色）
-    // 外观存入 Character.traits，下次命中缓存；新角色首次出现时 AI 实时登记
+    // 外观存入 Character.appearance 结构化字段，下次命中缓存；新角色首次出现时 AI 实时登记
     const characters: CharacterVisualHint[] = [];
     if (storyIdForChars) {
       try {
+        // C4: 先等待"续写后处理"的角色发现追平本段（流式续写的发现是异步的）——
+        // 否则两侧并发注册同段新角色，会产生重复角色/外观不一致（表现为"图里的人和文里对不上"）。
+        // 历史段落/已处理：零等待；超时（后处理未完成/失败）：本端照常自行发现并补写标记。
+        const discoveryReady = await characterManager.waitForCharacterDiscovery(
+          storyIdForChars,
+          branchIdForChain,
+          segmentId,
+          { timeoutMs: 15000, intervalMs: 1000 },
+        );
+
         const mentioned = await characterManager.discoverAndRegisterCharacters(
           storyIdForChars,
           segmentContent,
@@ -124,19 +134,19 @@ export async function POST(request: NextRequest) {
             callAIWithWebSearchFn: (p: string) => callAIText(p, { maxTokens: 1500, webSearch: true }),
           },
         );
+        if (!discoveryReady) {
+          // 等待超时 → 本端已完成发现，补写标记，避免后续请求对同一段重复等待
+          await characterManager.markCharacterDiscoveryDone(storyIdForChars, segmentId);
+        }
 
         for (const c of mentioned) {
-          // Prefer structured fields, fall back to traits prefix matching
-          const traits = Array.isArray(c.traits) ? (c.traits as string[]) : [];
-          const canonicalName = (c as any).canonicalName
-            || traits.find(t => typeof t === 'string' && t.startsWith('canonical:'))?.slice('canonical:'.length);
-          const appearance = (c as any).appearance
-            || traits.find(t => typeof t === 'string' && t.startsWith('appearance:'))?.slice('appearance:'.length);
+          // B2: 统一走结构化字段解析（appearance / canonicalName 独立列，兼容未迁移的旧前缀数据）
+          const { canonicalName, appearance } = resolveCharacterFields(c);
 
           characters.push({
             name: c.name,
-            canonicalName,
-            appearance,
+            canonicalName: canonicalName || undefined,
+            appearance: appearance || undefined,
             role: c.role || undefined,
           });
         }
@@ -145,40 +155,71 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 方案 C：拉取近 N 段摘要，传入图片生成器作为上下文
-    // 只在 chain 长度 > 1 时拉（首段无历史上下文，避免无用 LLM 调用）
+    // C4-② 图文对齐：先取分支链，统一用于两处决策——
+    // ① 上下文窗口按"目标段"对齐（此前 slice(-6,-1) 永远取链路末端，为历史段落
+    //    生图时喂的是结尾剧情 → 图文不符）；② 是否末段（决定滚动场景状态是否适用）。
     let contextSummary: string | undefined;
-    if (storyIdForChars) {
-      try {
-        const chain = await getOrderedChain(storyIdForChars, branchIdForChain);
-        if (chain.length > 1) {
-          const recent = chain.slice(-6, -1) as any[]; // 取当前段之前的最近 5 段，不包含当前段
-          if (recent.length > 0) {
-            contextSummary = await contextSummarizer.getContextForPrompt(recent, 1200, genre);
-          }
-        }
-      } catch (e) {
-        console.warn('[images/generate] 拉取上下文摘要失败:', e);
-      }
-    }
-
-    // 场景状态已由续写路由 await 写入，直接读取即可
     let sceneStateEn: string | undefined;
     if (storyIdForChars) {
+      let chain: Awaited<ReturnType<typeof getOrderedChain>> | null = null;
       try {
-        sceneStateEn = await directorManager.getSceneStatePromptEnglish(storyIdForChars);
+        chain = await getOrderedChain(storyIdForChars, branchIdForChain);
       } catch (e) {
-        console.warn('[images/generate] 读取场景状态失败:', e);
+        console.warn('[images/generate] 拉取分支链失败:', e);
+      }
+      const { isLatest, preceding } = chain
+        ? locateSegmentContext(chain, segmentId, 5)
+        : { isLatest: true, preceding: [] as any[] };
+
+      // 上下文摘要：目标段之前的最近 5 段（历史段落再生成时同样按目标段对齐）
+      if (preceding.length > 0) {
+        try {
+          contextSummary = await contextSummarizer.getContextForPrompt(preceding as any[], 1200, genre);
+        } catch (e) {
+          console.warn('[images/generate] 拉取上下文摘要失败:', e);
+        }
+      }
+
+      // C1/C4-②：场景状态只对分支末段注入——scene_state 是滚动到最新段的快照，
+      // 为历史段落生图时注入会把"最新时刻"的环境/在场角色强加到早期画面（图文不符）；
+      // 历史段落不注入，让场景提取只依据该段文本与上文窗口。非末段也无需等待追平。
+      if (isLatest) {
+        try {
+          await directorManager.waitForSceneStateFresh(storyIdForChars, branchIdForChain, segmentId, {
+            timeoutMs: 12000,
+            intervalMs: 1500,
+          });
+          sceneStateEn = await directorManager.getSceneStatePromptEnglish(storyIdForChars);
+        } catch (e) {
+          console.warn('[images/generate] 读取场景状态失败:', e);
+        }
+      } else {
+        console.log('[images/generate] 目标为历史段落：跳过场景状态注入（避免最新状态与该段内容不符）');
       }
     }
 
-    // seed 派生：主角锚定 + 场景微扰（见 src/lib/image-seed.ts）
-    //
-    // 旧实现用「全部角色名 + segmentId」派生 seed，导致两个问题：
-    //   ① 段落里多加一个路人 → seed 全变 → 主角的脸跟着变（章真毓反馈的串味根因）
-    //   ② segmentId 参与派生 → 相邻段落必然不同 seed → 跨段面部不一致
-    // 新实现只锚定主角外观，路人不再影响 seed。
-    const seed = deriveImageSeed(characters, segmentContent);
+    // C2/C5：seed 派生（角色集合 + 段落盐；重 roll 加变体 nonce）。
+    // C5 策略解析（请求参数 > 环境变量 IMAGE_SEED_STRATEGY > 默认）：
+    // - identity（默认）：同一故事内所有含角色的图片共享一个身份 seed —— 跨段、跨同框
+    //   角色组合都不换"脸"；构图差异交给场景提示词；同段多图也共享 seed（seedStride=0）。
+    // - diverse（C2 原行为）：角色集合 + 段落盐，跨段必不同（构图多样性优先）。
+    const requestedSeedStrategy = typeof seedStrategyRaw === 'string' ? seedStrategyRaw : process.env.IMAGE_SEED_STRATEGY;
+    const seedStrategy: ImageSeedStrategy = requestedSeedStrategy === 'diverse' ? 'diverse' : 'identity';
+
+    const isReroll = reroll === true || existingImageCount > 0;
+    const seed = deriveImageSeed({
+      characters,
+      storyId: storyIdForChars || '',
+      segmentId,
+      strategy: seedStrategy,
+      variant: isReroll ? Date.now().toString(36) : undefined,
+    });
+    if (isReroll && seedStrategy === 'identity') {
+      console.log('[images/generate] 重 roll 将更换身份种子（画面自然变化，脸部可能随之变化）');
+    }
+    console.log(
+      `[images/generate] seed=${seed}（${isReroll ? '重roll' : '首生成'}，策略=${seedStrategy}，登场角色 ${characters.length} 个）`,
+    );
 
     // 确定使用的风格：显式传入 > 自动分析
     let styleUsed: ImageStyle;
@@ -215,6 +256,8 @@ export async function POST(request: NextRequest) {
       contextSummary,
       sceneStateEn,
       seed,
+      // C5：identity 策略同段多图共享身份 seed（脸稳，构图靠提示词）；diverse 保持 seed+i
+      seedStride: seedStrategy === 'identity' ? 0 : 1,
       referenceImages: referenceImageHints.length > 0 ? referenceImageHints : undefined,
       callAIFn: (p: string) => callAIText(p, { maxTokens: 4000 }),
     });

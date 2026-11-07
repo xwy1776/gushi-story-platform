@@ -74,6 +74,9 @@ prisma.config.ts
 logs/
 run_v2.bat
 
+# Obsidian 工作区配置（本地阅读用，不属项目产物）
+.obsidian/
+
 # 本地 SQLite 运行库（团队用 Postgres；这是本地适配的运行时产物，含种子数据）
 prisma/dev.db
 

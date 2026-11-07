@@ -99,7 +99,7 @@ npm run dev
 
 ## 论文实验复现
 
-论文 v1.1 的主结果由以下脚本和落盘数据生成。所有命令均从仓库根目录执行。
+论文 v1.2 的主结果由以下脚本和落盘数据生成。所有命令均从仓库根目录执行。
 
 ### 1. 环境与检查
 
@@ -157,10 +157,13 @@ npx tsx tests/human_eval_prepare.ts
 npx tsx tests/human_eval_agreement.ts
 
 python scripts/make_paper_figures.py
-node scripts/merge-paper-v11.js
+pandoc Docs/ablation/论文_v1.2_期刊排版稿_20261107.md \
+  -f gfm -o 论文_v1.2_期刊排版稿_20261107.docx \
+  --resource-path=Docs/ablation
 ```
 
-论文 v1.1 合并稿：`Docs/ablation/古事论文_v1.1_20261031.md`。
+论文 v1.2 期刊排版稿：`Docs/ablation/论文_v1.2_期刊排版稿_20261107.md`。
+内部合并稿 v1.1 仍保留在 `Docs/ablation/古事论文_v1.1_20261031.md`。
 图文件位于 `Docs/ablation/figures/`。
 
 ## 项目结构

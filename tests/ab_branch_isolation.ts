@@ -62,7 +62,7 @@ import { buildFullPrompt } from '../src/lib/prompt-builder';
 import { knowledgeGraph } from '../src/lib/knowledge-graph';
 import { narrativeStateTracker } from '../src/lib/narrative-state-tracker';
 import { getOrderedChain } from '../src/lib/chain-helpers';
-import { callAIText } from '../src/lib/ai-client';
+import { callAIText, getModelConfig, type AIModelProfile } from '../src/lib/ai-client';
 import { MemoryRAGBaseline } from '../src/baseline-rag-memory';
 import { splitSimilarity, stats, trigramSimilarity } from './ab_ablation';
 
@@ -831,6 +831,8 @@ type SegResult = {
 };
 
 type RunResult = {
+  /** 实际用于续写生成的模型名；旧数据没有该字段 */
+  generatorModel?: string;
   story: string;
   isolation: Isolation;
   forkA: string;
@@ -962,7 +964,8 @@ async function seedFacts(
 }
 
 async function runFork(
-  def: ForkDef, isolation: Isolation, storyId: string, branchId: string, story: any, segmentsPerArm: number,
+  def: ForkDef, isolation: Isolation, storyId: string, branchId: string, story: any,
+  segmentsPerArm: number, generatorModel: AIModelProfile,
 ): Promise<RunResult> {
   const segs: SegResult[] = [];
   delete process.env.MEMORY_STATE_TABLE;
@@ -996,7 +999,12 @@ async function runFork(
       externalMemoryLabel: '单线 RAG 检索记忆',
     });
 
-    const content = await callAIText(prompt, { systemPrompt: SYSTEM_PROMPT, maxTokens: 700, story });
+    const content = await callAIText(prompt, {
+      systemPrompt: SYSTEM_PROMPT,
+      maxTokens: 700,
+      story,
+      modelProfile: generatorModel,
+    });
     const segId = `seg_fork_${def.story}_${isolation}_${String(i).padStart(3, '0')}`;
 
     await prisma.storySegment.create({
@@ -1037,6 +1045,7 @@ async function runFork(
   const adjSim = texts.slice(1).map((t, i) => trigramSimilarity(texts[i], t));
 
   return {
+    generatorModel: getModelConfig(generatorModel).model,
     story: def.story,
     isolation,
     forkA: def.branchA.label,
@@ -1382,6 +1391,10 @@ function parseArgs() {
     const hit = argv.find(a => a.startsWith(`--${k}=`));
     return hit ? hit.slice(k.length + 3) : d;
   };
+  const generatorModelRaw = get('generator-model', process.env.GENERATOR_MODEL || 'primary');
+  if (generatorModelRaw !== 'primary' && generatorModelRaw !== 'secondary') {
+    throw new Error(`--generator-model 只能是 primary 或 secondary，收到：${generatorModelRaw}`);
+  }
   return {
     rounds: parseInt(get('rounds', '1'), 10),
     stories: parseInt(get('stories', String(FORKS.length)), 10),
@@ -1401,6 +1414,7 @@ function parseArgs() {
     // 只跑指定故事的分叉（逗号分隔，按 story 名精确匹配）。
     // 用途：改设计后先小样本验证，别一上来就跑全部 12 组 × 3 轮。
     pick: get('pick', '').split(',').map(s => s.trim()).filter(Boolean),
+    generatorModel: generatorModelRaw as AIModelProfile,
   };
 }
 
@@ -1432,7 +1446,7 @@ function validateForks(defs: ForkDef[]): string[] {
 }
 
 async function main() {
-  const { rounds, stories, segments, arms, reportOnly, only, outName, tag, pick, from } = parseArgs();
+  const { rounds, stories, segments, arms, reportOnly, only, outName, tag, pick, from, generatorModel } = parseArgs();
   // --pick 优先于 --stories：按故事名精确挑选，便于单独验证某几个分叉；
   // 否则取 `[from, from+stories)` 这一段连续分叉（扩样后只跑新增那几组就靠它）。
   const defs = pick.length > 0 ? FORKS.filter(f => pick.includes(f.story)) : FORKS.slice(from, from + stories);
@@ -1452,6 +1466,11 @@ async function main() {
     process.exit(1);
   }
   console.log(`✓ 设计自检通过：${defs.length} 组冲突分支，marker 均未泄漏进 opener`);
+  if (!reportOnly) {
+    const generatorName = getModelConfig(generatorModel).model;
+    const judgeName = getModelConfig('primary').model;
+    console.log(`   生成模型：${generatorName}（${generatorModel}） ／ Judge：${judgeName}（primary）`);
+  }
 
   if (reportOnly) {
     // 用已落盘的结果重建报告，不重新生成（省 API 额度，也便于剔除残缺轮次）
@@ -1531,7 +1550,7 @@ async function main() {
             console.log('    （单线档：乙的事实也挂到了甲的检索空间）');
           }
 
-          const res = await runFork(def, isolation, storyId, branchId, story, segments);
+          const res = await runFork(def, isolation, storyId, branchId, story, segments, generatorModel);
           round.push(res);
           flush();   // 增量落盘：这一步之后即使被打断，已完成的部分也保得住
           console.log(`  → 关键词污染率 ${(res.keywordContaminationRate * 100).toFixed(0)}%，`

@@ -294,6 +294,9 @@ export interface AIModelConfig {
   apiKey?: string;
 }
 
+/** primary = 原有主实验模型；secondary = 第二模型交叉验证 */
+export type AIModelProfile = 'primary' | 'secondary';
+
 /**
  * AI 生成参数配置
  */
@@ -335,6 +338,26 @@ export function getDefaultModelConfig(): AIModelConfig {
 }
 
 /**
+ * 第二模型配置。只用于跨模型复验，找不到时明确报错，
+ * 避免静默回退到主模型后把结果误报成第二模型。
+ */
+export function getSecondaryModelConfig(): AIModelConfig {
+  const model = process.env.SECOND_MODEL_NAME;
+  const baseUrl = process.env.SECOND_MODEL_BASE_URL;
+  const apiKey = process.env.SECOND_MODEL_API_KEY;
+  if (!model || !baseUrl || !apiKey) {
+    throw new Error(
+      '第二模型未配置：请设置 SECOND_MODEL_NAME / SECOND_MODEL_BASE_URL / SECOND_MODEL_API_KEY',
+    );
+  }
+  return { model, baseUrl, apiKey };
+}
+
+export function getModelConfig(profile: AIModelProfile = 'primary'): AIModelConfig {
+  return profile === 'secondary' ? getSecondaryModelConfig() : getDefaultModelConfig();
+}
+
+/**
  * 生成完整的 OpenAI API 请求数据
  * @param enableWebSearch 让 GLM 模型启用内置 web_search 工具联网
  * @param temperature 覆盖按题材推断的采样温度。用途：把「判定类」调用（如 LLM-as-Judge）
@@ -348,8 +371,9 @@ export function buildOpenAIRequest(
   story?: Story,
   enableWebSearch?: boolean,
   temperature?: number,
+  modelProfile: AIModelProfile = 'primary',
 ) {
-  const config = getDefaultModelConfig();
+  const config = getModelConfig(modelProfile);
   const params = story ? getGenerationParams(story) : getGenerationParams({} as Story);
 
   const messages = [
@@ -365,6 +389,12 @@ export function buildOpenAIRequest(
     frequency_penalty: params.frequency_penalty,
     max_tokens: maxTokens || params.max_tokens
   };
+
+  // Qwen3 系列默认可能进入 thinking 模式，长文续写会显著拖慢；
+  // 第二模型只用于生成交叉验证，默认关闭 thinking，保持与主实验可比。
+  if (modelProfile === 'secondary' && process.env.SECOND_MODEL_ENABLE_THINKING !== 'true') {
+    requestBody.enable_thinking = false;
+  }
 
   // 启用智谱 GLM 内置 web_search 工具（BigModel /paas/v4 端点支持）
   if (enableWebSearch) {
@@ -407,16 +437,20 @@ export async function callAI(prompt: string, options: {
   webSearch?: boolean;
   /** 覆盖题材温度推断（见 buildOpenAIRequest）。判定类调用传 0 以保证可复现。 */
   temperature?: number;
+  /** 生成模型档位。默认主模型；第二模型复验时传 secondary。 */
+  modelProfile?: AIModelProfile;
 } = {}): Promise<Response> {
-  const { priority = 'high', systemPrompt, maxTokens, story, webSearch, temperature } = options;
+  const { priority = 'high', systemPrompt, maxTokens, story, webSearch, temperature, modelProfile = 'primary' } = options;
 
   return aiRequestQueue.enqueue(
     () => callAIWithRetry(() => {
-      const request = buildOpenAIRequest(prompt, systemPrompt, maxTokens, story, webSearch, temperature);
+      const request = buildOpenAIRequest(prompt, systemPrompt, maxTokens, story, webSearch, temperature, modelProfile);
+      const timeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS || 180000);
       return fetch(request.url, {
         method: 'POST',
         headers: request.headers,
         body: request.body,
+        signal: AbortSignal.timeout(timeoutMs),
       });
     }),
     priority
@@ -437,6 +471,8 @@ export async function callAIText(prompt: string, options: {
   webSearch?: boolean;
   /** 覆盖题材温度推断。判定类调用传 0 以保证可复现。 */
   temperature?: number;
+  /** 生成模型档位。默认主模型；第二模型复验时传 secondary。 */
+  modelProfile?: AIModelProfile;
 } = {}): Promise<string> {
   const response = await callAI(prompt, options);
   const data = await response.json();

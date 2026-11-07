@@ -150,7 +150,38 @@ npx tsx tests/ab_branch_isolation.ts \
 不能写成 embedding RAG；两档主结果 `12% / 67% / 55pp` 与三档重跑
 `5% / 12% / 61%` 来自不同运行，不能混合汇报。
 
-### 5. 人工评估与论文图
+### 5. 第二模型交叉验证（Qwen）
+
+先在 `.env` 中配置独立的 `SECOND_MODEL_*`，不要覆盖主实验的 `AI_*`：
+
+```env
+SECOND_MODEL_API_KEY=your_qwen_key
+SECOND_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+SECOND_MODEL_NAME=qwen3.7-plus
+SECOND_MODEL_ENABLE_THINKING=false
+```
+
+```bash
+# 先跑小样本 smoke
+npx tsx tests/ab_branch_isolation.ts \
+  --stories=2 --segments=2 --rounds=1 \
+  --arms=isolated,shared,rag \
+  --generator-model=secondary \
+  --tag=qwen37plus_smoke \
+  --out=branch_qwen_smoke_report.md
+
+# 探索性交叉验证：10 个分叉，一轮
+npx tsx tests/ab_branch_isolation.ts \
+  --stories=10 --segments=5 --rounds=1 \
+  --arms=isolated,shared,rag \
+  --generator-model=secondary \
+  --tag=qwen37plus_n10 \
+  --out=branch_qwen37plus_n10_report.md
+```
+
+该模式只替换续写生成模型；记忆抽取和 Judge 仍使用主模型，避免一次改变多个变量。
+
+### 6. 人工评估与论文图
 
 ```bash
 npx tsx tests/human_eval_prepare.ts

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import type { Character, CharacterRelationship } from '@/types/story';
+import { resolveCharacterFields, splitLegacyTraitFields } from '@/lib/character-fields';
 
 interface CharacterPanelProps {
   storyId: string;
@@ -84,6 +85,12 @@ export default function CharacterPanel({ storyId, branchId, segmentId, isOpen, o
             const role = getRoleLabel(char.role);
             const state = getCurrentState(char);
             const isActive = activeCharId === char.id;
+            // B2: 性格 chips 只显示真正的性格特征，过滤历史遗留的 appearance:/canonical:/fandom: 前缀项
+            const cleanTraits = (splitLegacyTraitFields(char.traits).cleanTraits as unknown[]).filter(
+              (t): t is string => typeof t === 'string' && t.trim().length > 0,
+            );
+            // B2: 外貌统一走结构化解析（结构化字段优先，未迁移的旧前缀数据也能显示出来）
+            const { appearance: displayAppearance } = resolveCharacterFields(char);
 
             return (
               <div key={char.id} className="space-y-1">
@@ -115,11 +122,11 @@ export default function CharacterPanel({ storyId, branchId, segmentId, isOpen, o
 
                 {isActive && (
                   <div className="ml-5 pl-4 border-l-2 border-[var(--gold)]/30 space-y-2.5 animate-fade-in-up">
-                    {char.traits && char.traits.length > 0 && (
+                    {cleanTraits.length > 0 && (
                       <div>
                         <span className="text-[11px] text-[var(--muted)] tracking-wider">性格</span>
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {char.traits.map((t, i) => (
+                          {cleanTraits.map((t, i) => (
                             <span
                               key={i}
                               className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--paper-dark)] text-[var(--ink)] border border-[var(--border)]"
@@ -128,6 +135,12 @@ export default function CharacterPanel({ storyId, branchId, segmentId, isOpen, o
                             </span>
                           ))}
                         </div>
+                      </div>
+                    )}
+                    {displayAppearance && (
+                      <div>
+                        <span className="text-[11px] text-[var(--muted)] tracking-wider">外貌</span>
+                        <p className="text-xs text-[var(--ink)]/85 mt-0.5 leading-relaxed">{displayAppearance}</p>
                       </div>
                     )}
                     {char.coreMotivation && (

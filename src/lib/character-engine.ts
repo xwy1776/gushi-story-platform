@@ -3,6 +3,8 @@ import prisma from '@/lib/prisma';
 import { getOrderedChain } from '@/lib/chain-helpers';
 import { hasExplicitWebSearch, webSearch, formatSearchResultsForPrompt } from '@/lib/web-search';
 import { extractJsonFromAI } from './ai-client';
+import { resolveCharacterFields, splitLegacyTraitFields } from './character-fields';
+import { sampleSegmentText } from './text-window';
 
 type StorySegment = PrismaSegment;
 type Character = PrismaCharacter;
@@ -39,10 +41,9 @@ export class CharacterManager {
     appearance?: string;
     canonicalName?: string;
   }): Promise<Character> {
-    // Extract appearance/canonicalName from traits prefix format if not explicitly provided
-    const traitsArr = data.traits || [];
-    const appearanceFromTraits = traitsArr.find((t: string) => typeof t === 'string' && t.startsWith('appearance:'))?.slice('appearance:'.length);
-    const canonicalFromTraits = traitsArr.find((t: string) => typeof t === 'string' && t.startsWith('canonical:'))?.slice('canonical:'.length);
+    // B2: traits 一律归一化 —— 兼容调用方仍传入旧前缀格式（appearance:/canonical:），
+    // 抽取到结构化字段后从 traits 中剔除，保证入库的 traits 只含性格特征
+    const { cleanTraits, legacyAppearance, legacyCanonicalName } = splitLegacyTraitFields(data.traits || []);
 
     return prisma.character.create({
       data: {
@@ -50,14 +51,14 @@ export class CharacterManager {
         name: data.name,
         era: data.era || '',
         role: data.role || 'supporting',
-        traits: traitsArr,
+        traits: cleanTraits as string[],
         speechPatterns: data.speechPatterns || '',
         relationships: data.relationships || [],
         stateHistory: data.stateHistory || [],
         coreMotivation: data.coreMotivation || '',
         storyId: data.storyId,
-        appearance: data.appearance || appearanceFromTraits || '',
-        canonicalName: data.canonicalName || canonicalFromTraits || '',
+        appearance: data.appearance || legacyAppearance || '',
+        canonicalName: data.canonicalName || legacyCanonicalName || '',
       },
     });
   }
@@ -65,6 +66,13 @@ export class CharacterManager {
   async update(id: string, updates: Partial<Character>): Promise<Character | null> {
     try {
       const { id: _id, createdAt: _ca, storyId: _sid, ...safeUpdates } = updates as any;
+      // B2: 归一化 traits（旧前缀抽入结构化字段；仅在本轮未显式更新对应字段时才补齐）
+      if (Array.isArray(safeUpdates.traits)) {
+        const { cleanTraits, legacyAppearance, legacyCanonicalName } = splitLegacyTraitFields(safeUpdates.traits);
+        safeUpdates.traits = cleanTraits;
+        if (legacyAppearance && !('appearance' in safeUpdates)) safeUpdates.appearance = legacyAppearance;
+        if (legacyCanonicalName && !('canonicalName' in safeUpdates)) safeUpdates.canonicalName = legacyCanonicalName;
+      }
       return await prisma.character.update({
         where: { id },
         data: { ...safeUpdates, updatedAt: new Date() },
@@ -169,7 +177,12 @@ export class CharacterManager {
     for (const c of characters) {
       lines.push(`## ${c.name}（${c.role === 'protagonist' ? '主角' : c.role === 'antagonist' ? '对手' : c.role === 'supporting' ? '配角' : '旁白'}）`);
       lines.push(`时代：${c.era}`);
-      const traits = Array.isArray(c.traits) ? (c.traits as string[]) : [];
+      // B2: 外貌走结构化字段（读取路径统一解析，兼容旧前缀数据）
+      const { appearance } = resolveCharacterFields(c);
+      if (appearance) {
+        lines.push(`外貌：${appearance}`);
+      }
+      const traits = splitLegacyTraitFields(c.traits).cleanTraits as string[];
       if (traits.length > 0) {
         lines.push(`性格特征：${traits.join('、')}`);
       }
@@ -252,7 +265,7 @@ export class CharacterManager {
    * 本方法在故事首次生成图时调用一次：
    *   1. 判断故事是否属于"已知 IP"（同人、历史名著、名作小说等）
    *   2. 若是，请求联网 LLM 一次性给出该作品的前 N 个主要角色 + 标准外观
-   *   3. 批量写入 Character 表（appearance / canonical 以前缀形式存入 traits）
+   *   3. 批量写入 Character 表（外观 / 规范名写入独立的 appearance / canonicalName 结构化字段）
    *   4. 在 DirectorState.worldVariables.fandom_seeded 打标记，避免重复 seed
    *
    * 任何一步失败都静默降级，绝不抛异常。
@@ -318,9 +331,11 @@ confidence < 0.6 时，isFandom 必须为 false。`;
   "canonicalName": "英文/罗马音规范名（最多 40 字符）",
   "era": "角色所处时代/世界背景简述（中文，一句话）",
   "role": "protagonist | antagonist | supporting | narrator",
-  "appearance": "纯英文 1-2 句，包含年龄段、发型、发色、眼睛、服装、标志性特征 —— 用于 diffusion 生成图片，务必贴合原作经典造型",
+  "appearance": "纯英文 2-3 句，按固定顺序覆盖：①年龄段与性别 ②五官与须式（脸型、眉、眼、鼻、唇、须式）③发型与发色 ④身高、体型与体态 ⑤服装与标志性配饰 —— 须式必须明确写出（具体须型，或明确 clean-shaven），不得省略；同一角色跨图面容、须式与体态必须一致，用于 diffusion 生成图片，务必贴合原作经典造型",
   "coreMotivation": "核心动机（中文，一句话）"
-}`;
+}
+
+要求：名册内各角色的外观必须彼此明显区分 —— 脸型、发型、体型、服装主色不得雷同，禁止"同一张脸换衣服"式的重复；原作形象接近的角色也需突出各自最有辨识度的差异特征。`;
 
     let roster: Array<{
       name?: string;
@@ -353,11 +368,6 @@ confidence < 0.6 时，isFandom 必须为 false。`;
       if (!/[\u4e00-\u9fff]/.test(name)) continue; // 过滤非中文名
       if (!item.appearance) continue;
 
-      const traits: string[] = [];
-      if (item.canonicalName) traits.push(`canonical:${item.canonicalName.slice(0, 80)}`);
-      traits.push(`appearance:${item.appearance.slice(0, 400)}`);
-      traits.push(`fandom:${fandomName}`);
-
       const role = allowedRoles.has((item.role || '').trim()) ? (item.role as string).trim() : 'supporting';
 
       try {
@@ -365,7 +375,10 @@ confidence < 0.6 时，isFandom 必须为 false。`;
           name,
           era: (item.era || '').slice(0, 80),
           role,
-          traits,
+          // B2: 外观 / 规范名写入独立结构化字段，不再拼装 "appearance:"/"canonical:" 前缀进 traits
+          // C5: 结构化外观（五官+体态）上限提升到 480 字符
+          appearance: item.appearance.slice(0, 480),
+          canonicalName: (item.canonicalName || '').slice(0, 80),
           coreMotivation: (item.coreMotivation || '').slice(0, 200),
           storyId,
         });
@@ -412,7 +425,7 @@ confidence < 0.6 时，isFandom 必须为 false。`;
    * 1. 让 LLM 从段落里抽取所有人物名
    * 2. 对照已有 Character 记录，筛出"新出现且未登记"的名字
    * 3. 为每个新名字再次查询 LLM 拿到 {canonicalName, era, role, appearance, coreMotivation}
-   * 4. 写入 Character 表（appearance / canonicalName 以 "appearance:" / "canonical:" 前缀存入 traits）
+   * 4. 写入 Character 表（外观 / 规范名存入独立的 appearance / canonicalName 结构化字段）
    * 5. 返回"段落中出现的所有角色（含已存在 + 新注册）"
    *
    * 任一步失败都会静默降级，不会阻塞主流程。
@@ -455,7 +468,7 @@ confidence < 0.6 时，isFandom 必须为 false。`;
 若没有任何人物，输出：[]
 
 文本：
-${segmentContent.slice(0, 2000)}`;
+${sampleSegmentText(segmentContent, 2000)}`;
 
       const raw = await callAIFn(nerPrompt);
       const parsed = extractJsonFromAI<string[]>(raw);
@@ -507,14 +520,23 @@ ${segmentContent.slice(0, 2000)}`;
           ? `\n【重要歧义消解】这篇故事是《${fandomName}》的同人/改编。若"${name}"是该作品里的角色，必须严格按该作品的原版设定返回；禁止把它当其他同名角色（如《西游记》的孙悟空 vs 《龙珠》的 Son Goku）。\n`
           : '';
 
+        // C5-②：把已登记角色（含本轮已创建）的外观摘要喂给模型，强制新角色与之明显区分
+        const seenChars = [...existing, ...created].filter(c => c.name !== name && c.appearance);
+        const distinctHint = seenChars.length > 0
+          ? `\n【已登记角色的外观（新角色的脸型/发型/体型/服装主色必须与这些角色明显区分，禁止雷同）】\n${seenChars
+              .slice(0, 10)
+              .map(c => `- ${c.name}: ${String(c.appearance).slice(0, 120)}`)
+              .join('\n')}\n`
+          : '';
+
         const infoPrompt = `你是同人 / 文学 / 历史百科助手。以下是一个故事的背景与新登场角色名。
 若该角色来自某部已知作品（动漫/小说/游戏/影视/历史），请按原作的规范设定给出；否则结合故事背景合理虚构。
-${fandomHint}${webContext ? webContext + '\n\n' : ''}严格输出一个 JSON 对象，不要 markdown、不要说明文字，字段：
+${fandomHint}${webContext ? webContext + '\n\n' : ''}${distinctHint}严格输出一个 JSON 对象，不要 markdown、不要说明文字，字段：
 {
   "canonicalName": "角色的英文/罗马音名（若虚构则给一个自然的英文化名字，最多 40 字符）",
   "era": "角色所处时代或世界背景简述（中文，一句话）",
   "role": "protagonist | antagonist | supporting | narrator",
-  "appearance": "纯英文 1-2 句，必须包含：年龄段、发型、发色、眼睛、服装、标志性特征，用于 diffusion 模型生成图片",
+  "appearance": "纯英文 2-3 句，按固定顺序覆盖：①年龄段与性别 ②五官与须式（脸型、眉、眼、鼻、唇、须式）③发型与发色 ④身高、体型与体态 ⑤服装与标志性特征 —— 须式必须明确写出（具体须型，或明确 clean-shaven），不得省略；同一角色跨图面容、须式与体态必须一致，用于 diffusion 模型生成图片",
   "coreMotivation": "核心动机（中文，一句话）"
 }
 
@@ -534,10 +556,6 @@ ${fandomHint}${webContext ? webContext + '\n\n' : ''}严格输出一个 JSON 对
         }>(raw);
         if (!parsed || !parsed.appearance) continue;
 
-        const traits: string[] = [];
-        if (parsed.canonicalName) traits.push(`canonical:${parsed.canonicalName.slice(0, 80)}`);
-        traits.push(`appearance:${parsed.appearance.slice(0, 400)}`);
-
         const allowedRoles = new Set(['protagonist', 'antagonist', 'supporting', 'narrator']);
         const role = allowedRoles.has((parsed.role || '').trim()) ? (parsed.role as string).trim() : 'supporting';
 
@@ -545,11 +563,12 @@ ${fandomHint}${webContext ? webContext + '\n\n' : ''}严格输出一个 JSON 对
           name,
           era: (parsed.era || '').slice(0, 80),
           role,
-          traits,
+          // B2: 外观 / 规范名存入独立结构化字段（唯一数据源），traits 不再承担前缀拼装
+          // C5: 结构化外观（五官+体态）上限提升到 480 字符
+          appearance: (parsed.appearance || '').slice(0, 480),
+          canonicalName: (parsed.canonicalName || '').slice(0, 80),
           coreMotivation: (parsed.coreMotivation || '').slice(0, 200),
           storyId,
-          appearance: (parsed.appearance || '').slice(0, 400),
-          canonicalName: (parsed.canonicalName || '').slice(0, 80),
         });
         created.push(newChar);
         console.log(`[character-engine] 自动注册角色：${name} → ${parsed.canonicalName || '(无英文名)'}`);
@@ -561,6 +580,74 @@ ${fandomHint}${webContext ? webContext + '\n\n' : ''}严格输出一个 JSON 对
     // Step 5: 返回段落中出现的所有角色（含已存在 + 新注册）
     const all = [...existing, ...created];
     return all.filter(c => c.name && segmentContent.includes(c.name));
+  }
+
+  /**
+   * 等待"角色发现/注册"追平到 forSegmentId（生图端在自行发现之前调用）。
+   *
+   * 背景（C4）：流式续写的发现/注册在 fire-and-forget 后处理链中执行；若用户在其
+   * 完成前生成插图，生图端也会对同一段做一次发现 → 两侧并发注册同段新角色，
+   * 会产生重复角色 / 外观不一致（表现为"图里的人和文里描述的不一样"）。
+   *
+   * - 仅对分支末段等待：历史段落的发现早已完成，不存在竞态；
+   * - 返回 true = 已确认处理到本段（含失败降级）；false = 超时/未知，调用方照常
+   *   自行发现，并可用 markCharacterDiscoveryDone 补写标记；
+   * - 轮询为数据库只读，多实例部署安全。
+   */
+  async waitForCharacterDiscovery(
+    storyId: string,
+    branchId: string,
+    forSegmentId: string,
+    options: { timeoutMs?: number; intervalMs?: number } = {},
+  ): Promise<boolean> {
+    const { timeoutMs = 15000, intervalMs = 1000 } = options;
+    try {
+      const chain = await getOrderedChain(storyId, branchId);
+      const targetIdx = chain.findIndex(s => s.id === forSegmentId);
+      if (targetIdx < 0 || targetIdx !== chain.length - 1) {
+        // 历史段落 / 未知段落：无需等待
+        return true;
+      }
+
+      const { directorManager } = await import('./director-manager');
+      const deadline = Date.now() + timeoutMs;
+      while (true) {
+        const state = await directorManager.getState(storyId);
+        const wv = (state?.worldVariables as Record<string, any>) || {};
+        const done = typeof wv.last_discovery_segment_id === 'string' ? (wv.last_discovery_segment_id as string) : '';
+        if (done) {
+          if (done === forSegmentId) return true;
+          const doneIdx = chain.findIndex(s => s.id === done);
+          if (doneIdx >= targetIdx) return true; // 已推进到更靠后的段落
+        }
+        if (Date.now() >= deadline) {
+          console.warn(
+            `[character-engine] 等待角色发现超时（${timeoutMs}ms，段落 ${forSegmentId}），改用本端自行发现`,
+          );
+          return false;
+        }
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+      }
+    } catch (e) {
+      console.warn('[character-engine] waitForCharacterDiscovery 失败（降级不等待）:', e);
+      return false;
+    }
+  }
+
+  /**
+   * 标记"该段落的角色发现已完成"（供生图端等待追平）。
+   * 续写后处理与生图端自行发现完成后都应调用；失败降级也标记，语义为"已处理"。
+   */
+  async markCharacterDiscoveryDone(storyId: string, segmentId: string): Promise<void> {
+    try {
+      const { directorManager } = await import('./director-manager');
+      await directorManager.getOrCreate(storyId);
+      await directorManager.updateState(storyId, {
+        worldVariables: { last_discovery_segment_id: segmentId },
+      });
+    } catch (e) {
+      console.warn('[character-engine] 标记角色发现完成失败:', e);
+    }
   }
 
   /**
@@ -583,7 +670,7 @@ ${fandomHint}${webContext ? webContext + '\n\n' : ''}严格输出一个 JSON 对
       const nameList = chars.map(c => c.name).join('、');
       const prompt = `阅读以下段落，为每个角色用一句话（不超过 30 字）描述其"当前状态"（身体状态、情绪、所处位置、在做什么）。
 段落：
-${segmentContent.slice(0, 1500)}
+${sampleSegmentText(segmentContent, 1500)}
 
 只输出 JSON 数组，格式：
 [{"name":"角色名","state":"一句话状态"}]

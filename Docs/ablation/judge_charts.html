@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>古事项目 · LLM-as-Judge 评测图表</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --s-none: #2a78d6;
+    --s-state: #eb6834;
+    --s-graph: #1baf7a;
+    --s-both: #eda100;
+    --sig-yes: #006300;
+  }
+  /* 深色值在两个作用域各声明一次：媒体查询覆盖系统设置，
+     data-theme 覆盖查看者的手动切换 —— 切换必须两个方向都能赢。 */
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255,255,255,0.10);
+      --s-none: #3987e5;
+      --s-state: #d95926;
+      --s-graph: #199e70;
+      --s-both: #c98500;
+      --sig-yes: #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255,255,255,0.10);
+    --s-none: #3987e5;
+    --s-state: #d95926;
+    --s-graph: #199e70;
+    --s-both: #c98500;
+    --sig-yes: #0ca30c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 64px;
+    background: var(--page); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  #theme-toggle {
+    flex: none; font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer;
+    background: var(--surface-1); color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 7px;
+  }
+  #theme-toggle:hover { color: var(--text-primary); }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; }
+  .sub { color: var(--text-secondary); margin: 0 0 24px; font-size: 13px; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 20px 16px; margin-bottom: 20px;
+  }
+  .card .desc { color: var(--text-secondary); font-size: 13px; margin: 0 0 14px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 14px; }
+  .legend-item { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px; }
+  .key { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+  .chart { width: 100%; height: auto; display: block; overflow: visible; }
+  .grid { stroke: var(--grid); stroke-width: 1; }
+  .axis { stroke: var(--axis); stroke-width: 1; }
+  .zero-line { stroke: var(--axis); stroke-width: 1; }
+  .tick { fill: var(--muted); font-size: 11px; }
+  .tick-end { text-anchor: end; }
+  .tick-mid { text-anchor: middle; }
+  .tick-start { text-anchor: start; }
+  .cell-title { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
+  .row-label { fill: var(--text-primary); font-size: 12px; font-weight: 600; }
+  .sig-yes { fill: var(--sig-yes); font-size: 11px; }
+  .sig-no { fill: var(--muted); font-size: 11px; }
+  .val-strong { fill: var(--text-primary); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .end-label { fill: var(--text-secondary); font-size: 11px; }
+  .end-key { font-weight: 700; }
+  .ring { stroke: var(--surface-1); stroke-width: 2; }
+  .bar-hit { cursor: pointer; }
+  .bar-hit:hover { opacity: .82; }
+  .pt-hit { cursor: pointer; }
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .data-table caption { text-align: left; color: var(--text-secondary); font-size: 13px; padding-bottom: 8px; }
+  .data-table th, .data-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: right; }
+  .data-table thead th { color: var(--muted); font-weight: 500; }
+  .data-table th[scope="row"] { text-align: left; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+  .data-table .strong { font-weight: 600; }
+  .callout {
+    border-left: 3px solid var(--s-state); background: var(--surface-1);
+    border: 1px solid var(--border); border-left-width: 3px;
+    border-radius: 8px; padding: 14px 16px; margin-bottom: 20px;
+  }
+  .callout p { margin: 0 0 8px; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong { font-weight: 600; }
+  #tip {
+    position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 7px; padding: 8px 11px; font-size: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.14); z-index: 50; max-width: 240px;
+  }
+  #tip .tv { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+  #tip .tn { color: var(--text-secondary); }
+  .tv { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <h1>古事项目 · LLM-as-Judge 四维一致性评测</h1>
+    <button id="theme-toggle" type="button">切换深浅色</button>
+  </div>
+  <p class="sub">
+    数据来源 <code>judge_results_2026-09-17-00-48-05-487.json</code> ·
+    Judge 模型 <code>deepseek-chat</code>（temperature=0）·
+    每条采样 3 次取中位数 ·
+    共 100 条（5 轮 × 4 档）
+  </p>
+
+  <div class="callout">
+    <p><strong>怎么读这张报告。</strong>四维各 1–5 分，总分 = 四维之和（4–20）。</p>
+    <p>图 3 是重点：三个处理档相对「无记忆」做配对比较，属<b>多重比较</b>，
+       故按 <strong>Bonferroni 校正</strong>（3 次比较，α = 0.05/3 ≈ 0.0167，df=24 下临界 t ≈ 2.57）。
+       校正后达到显著的档位数：<strong>0</strong>。</p>
+    <p>读图两个判据任一成立即「无差别」：误差棒跨过 0 线，或 p 值大于校正后的 α。</p>
+    <p>图 2 是限制条件：如果同一档位在不同轮次之间的起伏，比档位之间的差距还大，
+       那么<b>任何档位排序都不成立</b>——这正是消融实验先前踩过的坑。</p>
+  </div>
+
+  <div class="card">
+    <h2>图 1 · 四个维度上的档位对比</h2>
+    <p class="desc">每个小图是一个维度，横轴为四个档位。数值见表 1。</p>
+    <div class="legend"><span class="legend-item"><span class="key" style="background:var(--s-none)"></span>无记忆</span><span class="legend-item"><span class="key" style="background:var(--s-state)"></span>仅状态表</span><span class="legend-item"><span class="key" style="background:var(--s-graph)"></span>仅图谱</span><span class="legend-item"><span class="key" style="background:var(--s-both)"></span>状态表+图谱</span></div>
+    <svg viewBox="0 0 600 416" class="chart" role="img" aria-label="四个维度上各档位的平均得分对比"><g><text x="34" y="12" class="cell-title">角色稳定</text><line x1="34" y1="166" x2="290" y2="166" class="grid"/><text x="28" y="169.5" class="tick tick-end">1</text><line x1="34" y1="129" x2="290" y2="129" class="grid"/><text x="28" y="132.5" class="tick tick-end">2</text><line x1="34" y1="92" x2="290" y2="92" class="grid"/><text x="28" y="95.5" class="tick tick-end">3</text><line x1="34" y1="55" x2="290" y2="55" class="grid"/><text x="28" y="58.5" class="tick tick-end">4</text><line x1="34" y1="18" x2="290" y2="18" class="grid"/><text x="28" y="21.5" class="tick tick-end">5</text><line x1="34" y1="166" x2="290" y2="166" class="axis"/><path d="M 54 166 L 54 79.72 Q 54 75.72 58 75.72 L 74 75.72 Q 78 75.72 78 79.72 L 78 166 Z" fill="var(--s-none)" data-arm="none" data-dim="character" data-val="3.44" data-n="25" class="bar-hit"/><path d="M 118 166 L 118 73.8 Q 118 69.8 122 69.8 L 138 69.8 Q 142 69.8 142 73.8 L 142 166 Z" fill="var(--s-state)" data-arm="state" data-dim="character" data-val="3.60" data-n="25" class="bar-hit"/><path d="M 182 166 L 182 70.83999999999999 Q 182 66.83999999999999 186 66.83999999999999 L 202 66.83999999999999 Q 206 66.83999999999999 206 70.83999999999999 L 206 166 Z" fill="var(--s-graph)" data-arm="graph" data-dim="character" data-val="3.68" data-n="25" class="bar-hit"/><path d="M 246 166 L 246 79.72 Q 246 75.72 250 75.72 L 266 75.72 Q 270 75.72 270 79.72 L 270 166 Z" fill="var(--s-both)" data-arm="both" data-dim="character" data-val="3.44" data-n="25" class="bar-hit"/><text x="66" y="181" class="tick tick-mid">无记忆</text><text x="130" y="181" class="tick tick-mid">仅状态表</text><text x="194" y="181" class="tick tick-mid">仅图谱</text><text x="258" y="181" class="tick tick-mid">状态表+图谱</text></g><g><text x="334" y="12" class="cell-title">事件因果</text><line x1="334" y1="166" x2="590" y2="166" class="grid"/><text x="328" y="169.5" class="tick tick-end">1</text><line x1="334" y1="129" x2="590" y2="129" class="grid"/><text x="328" y="132.5" class="tick tick-end">2</text><line x1="334" y1="92" x2="590" y2="92" class="grid"/><text x="328" y="95.5" class="tick tick-end">3</text><line x1="334" y1="55" x2="590" y2="55" class="grid"/><text x="328" y="58.5" class="tick tick-end">4</text><line x1="334" y1="18" x2="590" y2="18" class="grid"/><text x="328" y="21.5" class="tick tick-end">5</text><line x1="334" y1="166" x2="590" y2="166" class="axis"/><path d="M 354 166 L 354 110.8 Q 354 106.8 358 106.8 L 374 106.8 Q 378 106.8 378 110.8 L 378 166 Z" fill="var(--s-none)" data-arm="none" data-dim="causality" data-val="2.60" data-n="25" class="bar-hit"/><path d="M 418 166 L 418 103.4 Q 418 99.4 422 99.4 L 438 99.4 Q 442 99.4 442 103.4 L 442 166 Z" fill="var(--s-state)" data-arm="state" data-dim="causality" data-val="2.80" data-n="25" class="bar-hit"/><path d="M 482 166 L 482 104.88000000000001 Q 482 100.88000000000001 486 100.88000000000001 L 502 100.88000000000001 Q 506 100.88000000000001 506 104.88000000000001 L 506 166 Z" fill="var(--s-graph)" data-arm="graph" data-dim="causality" data-val="2.76" data-n="25" class="bar-hit"/><path d="M 546 166 L 546 104.88000000000001 Q 546 100.88000000000001 550 100.88000000000001 L 566 100.88000000000001 Q 570 100.88000000000001 570 104.88000000000001 L 570 166 Z" fill="var(--s-both)" data-arm="both" data-dim="causality" data-val="2.76" data-n="25" class="bar-hit"/><text x="366" y="181" class="tick tick-mid">无记忆</text><text x="430" y="181" class="tick tick-mid">仅状态表</text><text x="494" y="181" class="tick tick-mid">仅图谱</text><text x="558" y="181" class="tick tick-mid">状态表+图谱</text></g><g><text x="34" y="220" class="cell-title">时间线连续</text><line x1="34" y1="374" x2="290" y2="374" class="grid"/><text x="28" y="377.5" class="tick tick-end">1</text><line x1="34" y1="337" x2="290" y2="337" class="grid"/><text x="28" y="340.5" class="tick tick-end">2</text><line x1="34" y1="300" x2="290" y2="300" class="grid"/><text x="28" y="303.5" class="tick tick-end">3</text><line x1="34" y1="263" x2="290" y2="263" class="grid"/><text x="28" y="266.5" class="tick tick-end">4</text><line x1="34" y1="226" x2="290" y2="226" class="grid"/><text x="28" y="229.5" class="tick tick-end">5</text><line x1="34" y1="374" x2="290" y2="374" class="axis"/><path d="M 54 374 L 54 339.52 Q 54 335.52 58 335.52 L 74 335.52 Q 78 335.52 78 339.52 L 78 374 Z" fill="var(--s-none)" data-arm="none" data-dim="timeline" data-val="2.04" data-n="25" class="bar-hit"/><path d="M 118 374 L 118 317.32 Q 118 313.32 122 313.32 L 138 313.32 Q 142 313.32 142 317.32 L 142 374 Z" fill="var(--s-state)" data-arm="state" data-dim="timeline" data-val="2.64" data-n="25" class="bar-hit"/><path d="M 182 374 L 182 321.76 Q 182 317.76 186 317.76 L 202 317.76 Q 206 317.76 206 321.76 L 206 374 Z" fill="var(--s-graph)" data-arm="graph" data-dim="timeline" data-val="2.52" data-n="25" class="bar-hit"/><path d="M 246 374 L 246 321.76 Q 246 317.76 250 317.76 L 266 317.76 Q 270 317.76 270 321.76 L 270 374 Z" fill="var(--s-both)" data-arm="both" data-dim="timeline" data-val="2.52" data-n="25" class="bar-hit"/><text x="66" y="389" class="tick tick-mid">无记忆</text><text x="130" y="389" class="tick tick-mid">仅状态表</text><text x="194" y="389" class="tick tick-mid">仅图谱</text><text x="258" y="389" class="tick tick-mid">状态表+图谱</text></g><g><text x="334" y="220" class="cell-title">情感连贯</text><line x1="334" y1="374" x2="590" y2="374" class="grid"/><text x="328" y="377.5" class="tick tick-end">1</text><line x1="334" y1="337" x2="590" y2="337" class="grid"/><text x="328" y="340.5" class="tick tick-end">2</text><line x1="334" y1="300" x2="590" y2="300" class="grid"/><text x="328" y="303.5" class="tick tick-end">3</text><line x1="334" y1="263" x2="590" y2="263" class="grid"/><text x="328" y="266.5" class="tick tick-end">4</text><line x1="334" y1="226" x2="590" y2="226" class="grid"/><text x="328" y="229.5" class="tick tick-end">5</text><line x1="334" y1="374" x2="590" y2="374" class="axis"/><path d="M 354 374 L 354 312.88 Q 354 308.88 358 308.88 L 374 308.88 Q 378 308.88 378 312.88 L 378 374 Z" fill="var(--s-none)" data-arm="none" data-dim="emotion" data-val="2.76" data-n="25" class="bar-hit"/><path d="M 418 374 L 418 293.64 Q 418 289.64 422 289.64 L 438 289.64 Q 442 289.64 442 293.64 L 442 374 Z" fill="var(--s-state)" data-arm="state" data-dim="emotion" data-val="3.28" data-n="25" class="bar-hit"/><path d="M 482 374 L 482 302.52 Q 482 298.52 486 298.52 L 502 298.52 Q 506 298.52 506 302.52 L 506 374 Z" fill="var(--s-graph)" data-arm="graph" data-dim="emotion" data-val="3.04" data-n="25" class="bar-hit"/><path d="M 546 374 L 546 299.56 Q 546 295.56 550 295.56 L 566 295.56 Q 570 295.56 570 299.56 L 570 374 Z" fill="var(--s-both)" data-arm="both" data-dim="emotion" data-val="3.12" data-n="25" class="bar-hit"/><text x="366" y="389" class="tick tick-mid">无记忆</text><text x="430" y="389" class="tick tick-mid">仅状态表</text><text x="494" y="389" class="tick tick-mid">仅图谱</text><text x="558" y="389" class="tick tick-mid">状态表+图谱</text></g></svg>
+  </div>
+
+  <div class="card">
+    <h2>图 2 · 跨轮趋势</h2>
+    <p class="desc">同一档位在不同轮次的总分均值。线条大起大落 = 结论不稳。</p>
+    <div class="legend"><span class="legend-item"><span class="key" style="background:var(--s-none)"></span>无记忆</span><span class="legend-item"><span class="key" style="background:var(--s-state)"></span>仅状态表</span><span class="legend-item"><span class="key" style="background:var(--s-graph)"></span>仅图谱</span><span class="legend-item"><span class="key" style="background:var(--s-both)"></span>状态表+图谱</span></div>
+    <svg viewBox="0 0 780 300" class="chart" role="img" aria-label="各档位总分在不同轮次间的变化趋势"><line x1="52" y1="252" x2="640" y2="252" class="grid"/><text x="44" y="255.5" class="tick tick-end">9</text>,<line x1="52" y1="205.6" x2="640" y2="205.6" class="grid"/><text x="44" y="209.1" class="tick tick-end">10</text>,<line x1="52" y1="159.2" x2="640" y2="159.2" class="grid"/><text x="44" y="162.7" class="tick tick-end">11</text>,<line x1="52" y1="112.80000000000001" x2="640" y2="112.80000000000001" class="grid"/><text x="44" y="116.30000000000001" class="tick tick-end">12</text>,<line x1="52" y1="66.39999999999998" x2="640" y2="66.39999999999998" class="grid"/><text x="44" y="69.89999999999998" class="tick tick-end">13</text>,<line x1="52" y1="20" x2="640" y2="20" class="grid"/><text x="44" y="23.5" class="tick tick-end">14</text><line x1="52" y1="252" x2="640" y2="252" class="axis"/><text x="52" y="270" class="tick tick-mid">R1</text><text x="199" y="270" class="tick tick-mid">R2</text><text x="346" y="270" class="tick tick-mid">R3</text><text x="493" y="270" class="tick tick-mid">R4</text><text x="640" y="270" class="tick tick-mid">full</text><path d="M 52 122.07999999999996 L 199 168.47999999999996 L 346 149.92000000000004 L 493 205.6 L 640 187.03999999999996" fill="none" stroke="var(--s-none)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="640" cy="187.03999999999996" r="4" fill="var(--s-none)" class="ring"/><path d="M 52 122.07999999999996 L 199 94.23999999999998 L 346 131.36 L 493 75.67999999999998 L 640 66.39999999999998" fill="none" stroke="var(--s-state)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="640" cy="66.39999999999998" r="4" fill="var(--s-state)" class="ring"/><path d="M 52 140.64 L 199 66.39999999999998 L 346 112.80000000000001 L 493 75.67999999999998 L 640 168.47999999999996" fill="none" stroke="var(--s-graph)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="640" cy="168.47999999999996" r="4" fill="var(--s-graph)" class="ring"/><path d="M 52 140.64 L 199 75.67999999999998 L 346 149.92000000000004 L 493 103.52000000000001 L 640 131.36" fill="none" stroke="var(--s-both)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="640" cy="131.36" r="4" fill="var(--s-both)" class="ring"/><circle cx="52" cy="122.07999999999996" r="12" fill="transparent" data-arm="none" data-key="无记忆" data-round="R1" data-val="11.80" class="pt-hit"/><circle cx="199" cy="168.47999999999996" r="12" fill="transparent" data-arm="none" data-key="无记忆" data-round="R2" data-val="10.80" class="pt-hit"/><circle cx="346" cy="149.92000000000004" r="12" fill="transparent" data-arm="none" data-key="无记忆" data-round="R3" data-val="11.20" class="pt-hit"/><circle cx="493" cy="205.6" r="12" fill="transparent" data-arm="none" data-key="无记忆" data-round="R4" data-val="10.00" class="pt-hit"/><circle cx="640" cy="187.03999999999996" r="12" fill="transparent" data-arm="none" data-key="无记忆" data-round="full" data-val="10.40" class="pt-hit"/><circle cx="52" cy="122.07999999999996" r="12" fill="transparent" data-arm="state" data-key="仅状态表" data-round="R1" data-val="11.80" class="pt-hit"/><circle cx="199" cy="94.23999999999998" r="12" fill="transparent" data-arm="state" data-key="仅状态表" data-round="R2" data-val="12.40" class="pt-hit"/><circle cx="346" cy="131.36" r="12" fill="transparent" data-arm="state" data-key="仅状态表" data-round="R3" data-val="11.60" class="pt-hit"/><circle cx="493" cy="75.67999999999998" r="12" fill="transparent" data-arm="state" data-key="仅状态表" data-round="R4" data-val="12.80" class="pt-hit"/><circle cx="640" cy="66.39999999999998" r="12" fill="transparent" data-arm="state" data-key="仅状态表" data-round="full" data-val="13.00" class="pt-hit"/><circle cx="52" cy="140.64" r="12" fill="transparent" data-arm="graph" data-key="仅图谱" data-round="R1" data-val="11.40" class="pt-hit"/><circle cx="199" cy="66.39999999999998" r="12" fill="transparent" data-arm="graph" data-key="仅图谱" data-round="R2" data-val="13.00" class="pt-hit"/><circle cx="346" cy="112.80000000000001" r="12" fill="transparent" data-arm="graph" data-key="仅图谱" data-round="R3" data-val="12.00" class="pt-hit"/><circle cx="493" cy="75.67999999999998" r="12" fill="transparent" data-arm="graph" data-key="仅图谱" data-round="R4" data-val="12.80" class="pt-hit"/><circle cx="640" cy="168.47999999999996" r="12" fill="transparent" data-arm="graph" data-key="仅图谱" data-round="full" data-val="10.80" class="pt-hit"/><circle cx="52" cy="140.64" r="12" fill="transparent" data-arm="both" data-key="状态表+图谱" data-round="R1" data-val="11.40" class="pt-hit"/><circle cx="199" cy="75.67999999999998" r="12" fill="transparent" data-arm="both" data-key="状态表+图谱" data-round="R2" data-val="12.80" class="pt-hit"/><circle cx="346" cy="149.92000000000004" r="12" fill="transparent" data-arm="both" data-key="状态表+图谱" data-round="R3" data-val="11.20" class="pt-hit"/><circle cx="493" cy="103.52000000000001" r="12" fill="transparent" data-arm="both" data-key="状态表+图谱" data-round="R4" data-val="12.20" class="pt-hit"/><circle cx="640" cy="131.36" r="12" fill="transparent" data-arm="both" data-key="状态表+图谱" data-round="full" data-val="11.60" class="pt-hit"/><path d="M 643 97.95199999999991 L 653 97.95199999999991" fill="none" stroke="var(--axis)" stroke-width="1"/><text x="657" y="101.45199999999991" class="tick end-label"><tspan class="end-key" fill="var(--s-state)">—</tspan> 仅状态表 12.32</text><path d="M 643 112.80000000000001 L 653 112.95199999999991" fill="none" stroke="var(--axis)" stroke-width="1"/><text x="657" y="116.45199999999991" class="tick end-label"><tspan class="end-key" fill="var(--s-graph)">—</tspan> 仅图谱 12.00</text><path d="M 643 120.22399999999993 L 653 127.95199999999991" fill="none" stroke="var(--axis)" stroke-width="1"/><text x="657" y="131.4519999999999" class="tick end-label"><tspan class="end-key" fill="var(--s-both)">—</tspan> 状态表+图谱 11.84</text><path d="M 643 166.624 L 653 166.624" fill="none" stroke="var(--axis)" stroke-width="1"/><text x="657" y="170.124" class="tick end-label"><tspan class="end-key" fill="var(--s-none)">—</tspan> 无记忆 10.84</text><text x="52" y="290" class="tick tick-start">横轴 = 实验轮次　纵轴 = 四维总分均值（4–20）</text></svg>
+  </div>
+
+  <div class="card">
+    <h2>图 3 · 相对基线的配对差值（含 Bonferroni 校正区间）</h2>
+    <p class="desc">配对口径：同一轮次、同一故事下，处理档总分 − 无记忆档总分。
+       误差棒用<b>校正后</b>的临界 t（≈2.57）而非 1.96，与显著性判定保持同一口径。</p>
+    <svg viewBox="0 0 560 250" class="chart" role="img" aria-label="各处理档相对基线的配对差值及95%置信区间"><text x="0" y="16" class="cell-title tick tick-start">相对「无记忆」的配对差值（总分，Bonferroni 校正区间）</text><line x1="122.08260569234203" y1="34" x2="122.08260569234203" y2="200" class="grid"/><text x="122.08260569234203" y="222" class="tick tick-mid">-3</text><line x1="179.05507046156134" y1="34" x2="179.05507046156134" y2="200" class="grid"/><text x="179.05507046156134" y="222" class="tick tick-mid">-2</text><line x1="236.02753523078067" y1="34" x2="236.02753523078067" y2="200" class="grid"/><text x="236.02753523078067" y="222" class="tick tick-mid">-1</text><line x1="349.9724647692193" y1="34" x2="349.9724647692193" y2="200" class="grid"/><text x="349.9724647692193" y="222" class="tick tick-mid">+1</text><line x1="406.9449295384386" y1="34" x2="406.9449295384386" y2="200" class="grid"/><text x="406.9449295384386" y="222" class="tick tick-mid">+2</text><line x1="463.91739430765796" y1="34" x2="463.91739430765796" y2="200" class="grid"/><text x="463.91739430765796" y="222" class="tick tick-mid">+3</text><line x1="293" y1="28" x2="293" y2="206" class="zero-line"/><text x="293" y="222" class="tick tick-mid">0 无差异</text><line x1="277.82897190736537" y1="61.66666666666667" x2="476.8095238095238" y2="61.66666666666667" stroke="var(--s-state)" stroke-width="2" stroke-linecap="round"/><line x1="277.82897190736537" y1="55.66666666666667" x2="277.82897190736537" y2="67.66666666666667" stroke="var(--s-state)" stroke-width="2" stroke-linecap="round"/><line x1="476.8095238095238" y1="55.66666666666667" x2="476.8095238095238" y2="67.66666666666667" stroke="var(--s-state)" stroke-width="2" stroke-linecap="round"/><circle cx="377.3192478584446" cy="61.66666666666667" r="5" fill="var(--s-state)" class="ring"/><text x="88" y="59.66666666666667" class="tick tick-end row-label">仅状态表</text><text x="88" y="74.66666666666667" class="tick tick-end sig-no">p=0.039 不显著</text><text x="485.8095238095238" y="65.66666666666667" class="tick tick-start val-strong">+1.48</text><title>仅状态表：差值 1.48，区间 ±1.75（校正后口径），t=2.18，p=0.0392（Bonferroni α=0.0167，临界 t=2.57）；13 优于 / 8 劣于基线（共 25）</title><line x1="263.4317130266003" y1="117" x2="454.74440523798853" y2="117" stroke="var(--s-graph)" stroke-width="2" stroke-linecap="round"/><line x1="263.4317130266003" y1="111" x2="263.4317130266003" y2="123" stroke="var(--s-graph)" stroke-width="2" stroke-linecap="round"/><line x1="454.74440523798853" y1="111" x2="454.74440523798853" y2="123" stroke="var(--s-graph)" stroke-width="2" stroke-linecap="round"/><circle cx="359.0880591322944" cy="117" r="5" fill="var(--s-graph)" class="ring"/><text x="88" y="115" class="tick tick-end row-label">仅图谱</text><text x="88" y="130" class="tick tick-end sig-no">p=0.088 不显著</text><text x="463.74440523798853" y="121" class="tick tick-start val-strong">+1.16</text><title>仅图谱：差值 1.16，区间 ±1.68（校正后口径），t=1.78，p=0.0881（Bonferroni α=0.0167，临界 t=2.57）；12 优于 / 8 劣于基线（共 25）</title><line x1="257.23761481036456" y1="172.33333333333334" x2="442.7073147280741" y2="172.33333333333334" stroke="var(--s-both)" stroke-width="2" stroke-linecap="round"/><line x1="257.23761481036456" y1="166.33333333333334" x2="257.23761481036456" y2="178.33333333333334" stroke="var(--s-both)" stroke-width="2" stroke-linecap="round"/><line x1="442.7073147280741" y1="166.33333333333334" x2="442.7073147280741" y2="178.33333333333334" stroke="var(--s-both)" stroke-width="2" stroke-linecap="round"/><circle cx="349.9724647692193" cy="172.33333333333334" r="5" fill="var(--s-both)" class="ring"/><text x="88" y="170.33333333333334" class="tick tick-end row-label">状态表+图谱</text><text x="88" y="185.33333333333334" class="tick tick-end sig-no">p=0.127 不显著</text><text x="451.7073147280741" y="176.33333333333334" class="tick tick-start val-strong">+1.00</text><title>状态表+图谱：差值 1.00，区间 ±1.63（校正后口径），t=1.58，p=0.1269（Bonferroni α=0.0167，临界 t=2.57）；15 优于 / 8 劣于基线（共 25）</title><text x="100" y="242" class="tick tick-start">误差棒为 Bonferroni 校正后区间（临界 t≈2.57，非 95%）；跨 0 ⇔ 与基线无统计差别</text></svg>
+  </div>
+
+  <div class="card">
+    <h2>表 1 · 各档位四维均分</h2>
+    <p class="desc">色块仅为识别辅助；数值本身即完整信息，不依赖颜色。</p>
+    <table class="data-table"><caption>各档位四维均分与总分（全部轮次合并）</caption><thead><tr><th scope="col">档位</th><th scope="col">条数</th><th scope="col">角色稳定</th><th scope="col">事件因果</th><th scope="col">时间线连续</th><th scope="col">情感连贯</th><th scope="col">总分均值</th></tr></thead><tbody><tr><th scope="row"><span class="key" style="background:var(--s-none)"></span>无记忆</th><td>25</td><td>3.44</td><td>2.60</td><td>2.04</td><td>2.76</td><td class="strong">10.84</td></tr><tr><th scope="row"><span class="key" style="background:var(--s-state)"></span>仅状态表</th><td>25</td><td>3.60</td><td>2.80</td><td>2.64</td><td>3.28</td><td class="strong">12.32</td></tr><tr><th scope="row"><span class="key" style="background:var(--s-graph)"></span>仅图谱</th><td>25</td><td>3.68</td><td>2.76</td><td>2.52</td><td>3.04</td><td class="strong">12.00</td></tr><tr><th scope="row"><span class="key" style="background:var(--s-both)"></span>状态表+图谱</th><td>25</td><td>3.44</td><td>2.76</td><td>2.52</td><td>3.12</td><td class="strong">11.84</td></tr></tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>表 2 · 跨轮总分均值</h2>
+    <p class="desc">对应图 2 的逐点数值。</p>
+    <table class="data-table"><caption>跨轮总分均值（档位 × 轮次）</caption><thead><tr><th scope="col">档位</th><th scope="col">R1</th><th scope="col">R2</th><th scope="col">R3</th><th scope="col">R4</th><th scope="col">full</th><th scope="col">全部均值</th></tr></thead><tbody><tr><th scope="row"><span class="key" style="background:var(--s-none)"></span>无记忆</th><td>11.80</td><td>10.80</td><td>11.20</td><td>10.00</td><td>10.40</td><td class="strong">10.84</td></tr><tr><th scope="row"><span class="key" style="background:var(--s-state)"></span>仅状态表</th><td>11.80</td><td>12.40</td><td>11.60</td><td>12.80</td><td>13.00</td><td class="strong">12.32</td></tr><tr><th scope="row"><span class="key" style="background:var(--s-graph)"></span>仅图谱</th><td>11.40</td><td>13.00</td><td>12.00</td><td>12.80</td><td>10.80</td><td class="strong">12.00</td></tr><tr><th scope="row"><span class="key" style="background:var(--s-both)"></span>状态表+图谱</th><td>11.40</td><td>12.80</td><td>11.20</td><td>12.20</td><td>11.60</td><td class="strong">11.84</td></tr></tbody></table>
+  </div>
+
+</div>
+<div id="tip" role="status" aria-live="polite"></div>
+<script>
+(function () {
+  var tip = document.getElementById('tip');
+  var ZH = { character: '角色稳定', causality: '事件因果', timeline: '时间线连续', emotion: '情感连贯' };
+  var ARM = { none: '无记忆', state: '仅状态表', graph: '仅图谱', both: '状态表+图谱' };
+
+  function show(e, title, rows) {
+    tip.textContent = '';
+    var t = document.createElement('div');
+    t.className = 'tn';
+    t.textContent = title;
+    tip.appendChild(t);
+    rows.forEach(function (r) {
+      var v = document.createElement('div');
+      var s = document.createElement('span');
+      s.className = 'tv';
+      s.textContent = r.v;
+      v.appendChild(s);
+      var n = document.createElement('span');
+      n.className = 'tn';
+      n.textContent = '  ' + r.n;
+      v.appendChild(n);
+      tip.appendChild(v);
+    });
+    tip.style.opacity = '1';
+  }
+  function move(e) {
+    var pad = 14;
+    var x = e.clientX + pad, y = e.clientY + pad;
+    var r = tip.getBoundingClientRect();
+    if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - pad;
+    if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - pad;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  }
+  function hide() { tip.style.opacity = '0'; }
+
+  // 主题切换：显式盖上 data-theme，两个方向都能赢过系统的 prefers-color-scheme
+  var root = document.documentElement;
+  var btn = document.getElementById('theme-toggle');
+  if (btn) {
+    btn.addEventListener('click', function () {
+      var dark = root.getAttribute('data-theme') === 'dark' ||
+        (!root.hasAttribute('data-theme') &&
+          window.matchMedia('(prefers-color-scheme: dark)').matches);
+      root.setAttribute('data-theme', dark ? 'light' : 'dark');
+    });
+  }
+
+  document.querySelectorAll('.bar-hit').forEach(function (el) {
+    el.addEventListener('pointerenter', function (e) {
+      show(e, ZH[el.dataset.dim] + ' · ' + ARM[el.dataset.arm], [{ v: el.dataset.val, n: '/ 5（n=' + el.dataset.n + '）' }]);
+    });
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerleave', hide);
+  });
+
+  document.querySelectorAll('.pt-hit').forEach(function (el) {
+    el.addEventListener('pointerenter', function (e) {
+      show(e, el.dataset.round + ' · ' + ARM[el.dataset.arm],
+        [{ v: el.dataset.val, n: '/ 20（四维总分）' }]);
+    });
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerleave', hide);
+  });
+})();
+</script>
+</body>
+</html>

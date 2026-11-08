@@ -370,6 +370,11 @@ function buildReport(items: Item[], srcName: string): string {
       `✅ **两个口径的净泄漏增量基本吻合，主结果得到人工锚定。**论文可写：` +
         `「净泄漏增量经人工抽样核验，与自动判定一致（${pct(gapHuman)} vs ${pct(gapJudge)}）」。`,
     );
+    L.push('');
+    L.push(
+      '> ⚠️ **本报告只对应标注者 A。**论文中的人工口径应报 **A/B 范围 57.4%–69.9%**' +
+        '（见 `标注者间一致性报告.md`），不能把本报告的 57.4% 写成两位标注者的共同结果。',
+    );
   } else if (gapDiff <= 0.20) {
     L.push(
       `⚠️ **两个口径有可察觉的差距（${pct(gapDiff)}）。**主结果方向不变，但引用 55pp 这类` +
